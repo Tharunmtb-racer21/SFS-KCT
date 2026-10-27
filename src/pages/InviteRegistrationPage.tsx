@@ -220,8 +220,8 @@ export const InviteRegistrationPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 py-12">
-      <div className="bg-white rounded-3xl border border-slate-200 shadow-xl max-w-xl w-full overflow-hidden">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 py-8 sm:py-12">
+      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xl max-w-xl w-full overflow-hidden">
         {/* Banner */}
         <div className="bg-gradient-to-r from-navy-950 via-navy-900 to-navy-950 text-white p-6 sm:p-8 border-b border-navy-800">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
@@ -442,16 +442,22 @@ export const InviteRegistrationPage: React.FC = () => {
                   </>
                 )}
               </button>
-              <div className="pt-4 text-center text-[11px] text-slate-500 border-t border-slate-100 space-y-1">
-                <p className="font-semibold text-slate-700">MentorPulse by THARUN N E &bull; SFS @ Kumaraguru College of Technology</p>
-                <p className="text-teal-700 font-bold">Developed by THARUN N E</p>
+              <div className="pt-4 text-center text-[11px] text-slate-400 border-t border-slate-100">
+                Protected by Row Level Security (RLS) & Verified Class Isolation
               </div>
             </form>
           )}
         </div>
       </div>
-      <div className="w-full max-w-xl mt-6">
-        <Footer />
+
+      {/* Centered Professional Bottom Attribution */}
+      <div className="mt-6 text-center text-xs text-slate-400 space-y-0.5">
+        <p className="font-medium text-slate-600">
+          MentorPulse &bull; SFS @ Kumaraguru College of Technology
+        </p>
+        <p className="text-[11px]">
+          Designed & Developed by <strong className="text-teal-800 font-bold tracking-wide">THARUN N E</strong>
+        </p>
       </div>
     </div>
   );

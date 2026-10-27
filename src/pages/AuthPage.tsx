@@ -142,33 +142,40 @@ export const AuthPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 py-12">
-      <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 py-8 sm:py-12">
+      <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 bg-white rounded-3xl border border-slate-200/90 shadow-2xl overflow-hidden">
         {/* Left Branding & Quick Persona Testing Panel */}
         <div className="bg-navy-950 text-white p-8 flex flex-col justify-between border-b md:border-b-0 md:border-r border-navy-800">
           <div>
-            <div className="flex items-center gap-2.5 mb-6">
-              <div className="w-10 h-10 rounded-xl bg-teal-600 flex items-center justify-center shadow-md shadow-teal-900">
+            {/* Institution Badge */}
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px] font-semibold mb-5 tracking-wide">
+              <span>SFS @ Kumaraguru College of Technology</span>
+            </div>
+
+            {/* Logo & Creator */}
+            <div className="flex items-center gap-3.5 mb-6">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500 to-teal-700 flex items-center justify-center shadow-lg shadow-teal-950/60">
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-bold text-lg text-white">MentorPulse</span>
-                  <span className="text-teal-300 font-semibold text-xs">by THARUN N E</span>
-                </div>
-                <span className="block text-[11px] text-teal-200 font-medium">SFS @ Kumaraguru College of Technology</span>
+                <h1 className="font-extrabold text-2xl tracking-tight text-white leading-none">
+                  MentorPulse
+                </h1>
+                <p className="text-xs text-teal-300 font-medium mt-1">
+                  Developed by <span className="text-white font-bold tracking-wide">THARUN N E</span>
+                </p>
               </div>
             </div>
 
-            <h2 className="text-xl font-bold text-white tracking-tight leading-snug">
-              Academic mentoring & progress tracking for SFS @ Kumaraguru College of Technology.
+            <h2 className="text-base font-bold text-white tracking-tight leading-snug">
+              Academic mentoring & student progress tracking platform.
             </h2>
             <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-              MentorPulse by THARUN N E isolates multiple departments, enforces unguessable registration tokens, and maintains verifiable progress records.
+              Enforcing independent department cohorts, unguessable registration tokens, and verifiable progress evaluation records.
             </p>
 
             {/* Quick Demo Personas Box */}
-            <div className="mt-8 p-4 rounded-2xl bg-navy-900 border border-navy-800 space-y-3">
+            <div className="mt-6 p-4 rounded-2xl bg-navy-900 border border-navy-800 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs font-bold text-teal-300 uppercase tracking-wider">
                   <Sparkles className="w-3.5 h-3.5" />
@@ -242,12 +249,14 @@ export const AuthPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="text-[11px] text-slate-400 mt-6 pt-4 border-t border-navy-900 flex flex-col sm:flex-row items-center justify-between gap-1">
-            <span className="flex items-center gap-1.5">
-              <Database className="w-3.5 h-3.5 text-teal-400" />
-              {activeMode === 'production' ? 'Production Supabase Mode' : 'Local Storage Demo Mode'}
-            </span>
-            <span className="text-teal-300 font-semibold">Dev by THARUN N E</span>
+          <div className="mt-8 pt-4 border-t border-navy-800/80 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
+              <span className="text-slate-300 font-medium">
+                Developed by <strong className="text-teal-300 font-semibold tracking-wide">THARUN N E</strong>
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400 font-mono tracking-wider">SFS &bull; KCT</span>
           </div>
         </div>
 
@@ -330,7 +339,7 @@ export const AuthPage: React.FC = () => {
                   disabled={isSubmitting}
                   className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
                 >
-                  {isSubmitting ? 'Authenticating...' : 'Sign In to MentorPulse by THARUN N E'}
+                  {isSubmitting ? 'Authenticating...' : 'Sign In to MentorPulse'}
                   <ArrowRight className="w-3.5 h-3.5 text-teal-400" />
                 </button>
               </form>
@@ -460,14 +469,20 @@ export const AuthPage: React.FC = () => {
             )}
           </div>
 
-          <div className="pt-6 text-center text-[11px] text-slate-500 border-t border-slate-100 mt-4 space-y-1">
-            <p className="font-semibold text-slate-700">MentorPulse by THARUN N E &bull; SFS @ Kumaraguru College of Technology</p>
-            <p className="text-teal-700 font-bold text-xs">Developed by THARUN N E</p>
+          <div className="pt-4 text-center text-[11px] text-slate-400 border-t border-slate-100 mt-4">
+            Protected by Row Level Security (RLS) & Verified Class Isolation
           </div>
         </div>
       </div>
-      <div className="w-full max-w-4xl mt-6">
-        <Footer />
+
+      {/* Centered Professional Bottom Attribution */}
+      <div className="mt-6 text-center text-xs text-slate-400 space-y-0.5">
+        <p className="font-medium text-slate-600">
+          MentorPulse &bull; SFS @ Kumaraguru College of Technology
+        </p>
+        <p className="text-[11px]">
+          Designed & Developed by <strong className="text-teal-800 font-bold tracking-wide">THARUN N E</strong>
+        </p>
       </div>
     </div>
   );
