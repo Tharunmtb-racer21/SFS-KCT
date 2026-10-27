@@ -21,7 +21,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 
 export const StudentDirectory: React.FC = () => {
   const { currentUser, activeClass, refreshData, activeMode } = useApp();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [enrollments, setEnrollments] = useState<(ClassEnrollment & { student: Profile })[]>([]);
@@ -32,6 +32,15 @@ export const StudentDirectory: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'approved' | 'pending'>(
     searchParams.get('tab') === 'pending' ? 'pending' : 'approved'
   );
+
+  const handleTabChange = (newTab: 'approved' | 'pending') => {
+    setActiveTab(newTab);
+    if (newTab === 'pending') {
+      setSearchParams({ tab: 'pending' });
+    } else {
+      setSearchParams({});
+    }
+  };
 
   const loadEnrollments = async () => {
     if (!activeClass) {
@@ -179,7 +188,7 @@ export const StudentDirectory: React.FC = () => {
 
           <div className="flex items-center bg-slate-100 p-1 rounded-xl">
             <button
-              onClick={() => setActiveTab('approved')}
+              onClick={() => handleTabChange('approved')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                 activeTab === 'approved'
                   ? 'bg-white text-navy-900 shadow-xs'
@@ -191,7 +200,7 @@ export const StudentDirectory: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setActiveTab('pending')}
+              onClick={() => handleTabChange('pending')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
                 activeTab === 'pending'
                   ? 'bg-white text-amber-900 shadow-xs'
@@ -248,7 +257,7 @@ export const StudentDirectory: React.FC = () => {
               Approve All ({pendingList.length})
             </button>
             <button
-              onClick={() => setActiveTab('pending')}
+              onClick={() => handleTabChange('pending')}
               className="font-semibold text-amber-800 underline hover:text-amber-950 px-2 py-1"
             >
               Review List &rarr;

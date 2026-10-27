@@ -14,17 +14,35 @@ import { StudentProfileEdit } from './pages/StudentProfileEdit';
 import { StudentClassesPage } from './pages/StudentClassesPage';
 import { InviteRegistrationPage } from './pages/InviteRegistrationPage';
 import { AuthPage } from './pages/AuthPage';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
 const RootRedirect: React.FC = () => {
-  const { currentUser } = useApp();
+  const { currentUser, isAuthLoading } = useApp();
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+      </div>
+    );
+  }
   if (!currentUser) return <Navigate to="/auth" replace />;
   if (currentUser.role === 'mentor') return <Navigate to="/mentor/dashboard" replace />;
   return <Navigate to="/student/feed" replace />;
 };
 
 const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { currentUser } = useApp();
+  const { currentUser, isAuthLoading } = useApp();
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-2 text-slate-500 text-xs">
+          <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+          <p className="font-semibold text-slate-700">Restoring MentorPulse session...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return <Navigate to="/auth" replace />;

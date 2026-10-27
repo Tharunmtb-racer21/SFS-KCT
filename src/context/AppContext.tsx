@@ -16,6 +16,7 @@ interface AppContextType {
   activeMode: AppMode;
   productionError: string | null;
   isLoading: boolean;
+  isAuthLoading: boolean;
   setActiveMode: (mode: AppMode) => void;
   clearProductionError: () => void;
   setActiveClassId: (id: string | null) => void;
@@ -43,6 +44,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeMode, setActiveModeState] = useState<AppMode>(initialMode);
   const [productionError, setProductionError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   const [currentUser, setCurrentUser] = useState<Profile | null>(() => {
     if (initialMode === 'demo') {
@@ -131,6 +133,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setCurrentUser(user);
 
       if (user) {
+        localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(user));
         if (user.role === 'mentor') {
           const mentorClasses = await supabaseService.getClassesForMentor(user.id);
           setClasses(mentorClasses);
@@ -166,6 +169,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setNotifications([]);
     } finally {
       setIsLoading(false);
+      setIsAuthLoading(false);
     }
   };
 
@@ -317,6 +321,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         activeMode,
         productionError,
         isLoading,
+        isAuthLoading,
         setActiveMode,
         clearProductionError,
         setActiveClassId,

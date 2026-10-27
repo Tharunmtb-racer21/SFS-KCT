@@ -87,6 +87,49 @@ export const InviteRegistrationPage: React.FC = () => {
     fetchClassInfo();
   }, [inviteCode, activeMode]);
 
+  // Restore draft inputs from sessionStorage on mount so refreshing never loses entered data
+  useEffect(() => {
+    if (!inviteCode) return;
+    const draftKey = `mentorpulse_draft_${inviteCode}`;
+    const saved = sessionStorage.getItem(draftKey);
+    if (saved) {
+      try {
+        const d = JSON.parse(saved);
+        if (d.fullName) setFullName(d.fullName);
+        if (d.email) setEmail(d.email);
+        if (d.regNo) setRegNo(d.regNo);
+        if (d.department) setDepartment(d.department);
+        if (d.academicYear) setAcademicYear(d.academicYear);
+        if (d.section) setSection(d.section);
+        if (d.phone) setPhone(d.phone);
+        if (d.skillsStr) setSkillsStr(d.skillsStr);
+        if (d.careerGoals) setCareerGoals(d.careerGoals);
+        if (d.avatarPreview) setAvatarPreview(d.avatarPreview);
+      } catch (err) {
+        console.warn('Failed restoring draft:', err);
+      }
+    }
+  }, [inviteCode]);
+
+  // Auto-save form inputs to sessionStorage on change
+  useEffect(() => {
+    if (!inviteCode) return;
+    const draftKey = `mentorpulse_draft_${inviteCode}`;
+    const draft = {
+      fullName,
+      email,
+      regNo,
+      department,
+      academicYear,
+      section,
+      phone,
+      skillsStr,
+      careerGoals,
+      avatarPreview,
+    };
+    sessionStorage.setItem(draftKey, JSON.stringify(draft));
+  }, [inviteCode, fullName, email, regNo, department, academicYear, section, phone, skillsStr, careerGoals, avatarPreview]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
@@ -188,6 +231,8 @@ export const InviteRegistrationPage: React.FC = () => {
         setActiveClassId(targetClass.id);
         await refreshData();
 
+        sessionStorage.removeItem(`mentorpulse_draft_${inviteCode}`);
+
         // Direct navigation straight to daily progress submission feed with composer open
         navigate('/student/feed?compose=true');
       } else {
@@ -210,6 +255,7 @@ export const InviteRegistrationPage: React.FC = () => {
         setSessionUser(newStudent);
         setActiveClassId(targetClass.id);
         refreshData();
+        sessionStorage.removeItem(`mentorpulse_draft_${inviteCode}`);
         navigate('/student/feed?compose=true');
       }
     } catch (err: any) {

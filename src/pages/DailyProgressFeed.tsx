@@ -87,6 +87,41 @@ export const DailyProgressFeed: React.FC = () => {
   const [openComments, setOpenComments] = useState<{ [postId: string]: boolean }>({});
   const [submittingComment, setSubmittingComment] = useState<{ [postId: string]: boolean }>({});
 
+  // Auto-save composer draft so refreshing never loses entered progress text
+  useEffect(() => {
+    if (!activeClass || !currentUser) return;
+    const draftKey = `mentorpulse_feed_draft_${currentUser.id}_${activeClass.id}`;
+    if (title || description || challenges || nextSteps || skillsInput) {
+      sessionStorage.setItem(
+        draftKey,
+        JSON.stringify({ category, title, description, skillsInput, challenges, nextSteps, activityDate, locationName })
+      );
+    }
+  }, [category, title, description, skillsInput, challenges, nextSteps, activityDate, locationName, activeClass?.id, currentUser?.id]);
+
+  // Load composer draft on mount
+  useEffect(() => {
+    if (!activeClass || !currentUser) return;
+    const draftKey = `mentorpulse_feed_draft_${currentUser.id}_${activeClass.id}`;
+    const saved = sessionStorage.getItem(draftKey);
+    if (saved) {
+      try {
+        const d = JSON.parse(saved);
+        if (d.category) setCategory(d.category);
+        if (d.title) setTitle(d.title);
+        if (d.description) setDescription(d.description);
+        if (d.skillsInput) setSkillsInput(d.skillsInput);
+        if (d.challenges) setChallenges(d.challenges);
+        if (d.nextSteps) setNextSteps(d.nextSteps);
+        if (d.activityDate) setActivityDate(d.activityDate);
+        if (d.locationName) setLocationName(d.locationName);
+        setShowComposer(true);
+      } catch (err) {
+        console.warn('Failed restoring post draft:', err);
+      }
+    }
+  }, [activeClass?.id, currentUser?.id]);
+
   const loadPosts = async () => {
     if (!activeClass) {
       setPosts([]);
@@ -280,6 +315,9 @@ export const DailyProgressFeed: React.FC = () => {
       setSelectedFileObj(null);
       setUploadProgress(null);
       setShowComposer(false);
+      if (activeClass && currentUser) {
+        sessionStorage.removeItem(`mentorpulse_feed_draft_${currentUser.id}_${activeClass.id}`);
+      }
       setSuccessMessage('Progress update published successfully to the class stream.');
       setTimeout(() => setSuccessMessage(null), 4000);
       await loadPosts();
