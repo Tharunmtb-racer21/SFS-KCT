@@ -412,8 +412,23 @@ export const MentorDashboard: React.FC = () => {
                       return (
                         <tr key={student.id} className="hover:bg-slate-50/70 transition-colors">
                           <td className="py-3 px-3">
-                            <div className="font-semibold text-slate-900">{student.full_name}</div>
-                            <div className="text-[11px] text-slate-500 font-mono">{student.student_reg_no || 'Reg. No Pending'}</div>
+                            <div className="flex items-center gap-2.5">
+                              {student.avatar_url ? (
+                                <img 
+                                  src={student.avatar_url} 
+                                  alt="" 
+                                  className="w-7 h-7 rounded-full object-cover border border-slate-200 shrink-0" 
+                                />
+                              ) : (
+                                <div className="w-7 h-7 rounded-full bg-navy-100 text-navy-800 font-bold flex items-center justify-center text-[10px] shrink-0">
+                                  {student.full_name.charAt(0)}
+                                </div>
+                              )}
+                              <div>
+                                <div className="font-semibold text-slate-900">{student.full_name}</div>
+                                <div className="text-[11px] text-slate-500 font-mono">{student.student_reg_no || 'Reg. No Pending'}</div>
+                              </div>
+                            </div>
                           </td>
                           <td className="py-3 px-3">
                             <span className="font-semibold text-slate-800">{postCount}</span> posts

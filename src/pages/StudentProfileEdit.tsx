@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
+import { ProfilePhotoPicker } from '../components/ProfilePhotoPicker';
 import { 
   Save, 
   Mail, 
@@ -23,6 +24,11 @@ export const StudentProfileEdit: React.FC = () => {
   const [skillsStr, setSkillsStr] = useState((currentUser?.skills || []).join(', '));
   const [careerGoals, setCareerGoals] = useState(currentUser?.career_goals || '');
   const [hobbies, setHobbies] = useState(currentUser?.hobbies || '');
+
+  // Photo state
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(currentUser?.avatar_url || null);
+  const [isAvatarRemoved, setIsAvatarRemoved] = useState(false);
 
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -48,6 +54,23 @@ export const StudentProfileEdit: React.FC = () => {
     setErrorMsg('');
 
     try {
+      let finalAvatarUrl: string | undefined = currentUser.avatar_url;
+
+      // 1. Handle Photo Upload / Replacement / Removal
+      if (avatarFile) {
+        if (activeMode === 'production') {
+          const res = await supabaseService.uploadAvatar(currentUser.id, avatarFile, currentUser.avatar_url);
+          finalAvatarUrl = res.url;
+        } else {
+          finalAvatarUrl = avatarPreview || undefined;
+        }
+      } else if (isAvatarRemoved) {
+        if (activeMode === 'production' && currentUser.avatar_url) {
+          await supabaseService.deleteAvatar(currentUser.id, currentUser.avatar_url);
+        }
+        finalAvatarUrl = undefined;
+      }
+
       const payload = {
         full_name: fullName.trim(),
         student_reg_no: regNo.trim(),
@@ -58,6 +81,7 @@ export const StudentProfileEdit: React.FC = () => {
         skills,
         career_goals: careerGoals.trim(),
         hobbies: hobbies.trim(),
+        avatar_url: finalAvatarUrl,
       };
 
       if (activeMode === 'production') {
@@ -99,6 +123,18 @@ export const StudentProfileEdit: React.FC = () => {
               {errorMsg}
             </div>
           )}
+
+          {/* Student Profile Photo Picker */}
+          <ProfilePhotoPicker
+            currentPhotoUrl={avatarPreview || undefined}
+            fallbackInitials={fullName || currentUser.full_name}
+            onPhotoSelected={(file, preview) => {
+              setAvatarFile(file);
+              setAvatarPreview(preview);
+              setIsAvatarRemoved(file === null && preview === null);
+            }}
+            onError={(msg) => setErrorMsg(msg)}
+          />
 
           {/* Institutional Identifiers */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

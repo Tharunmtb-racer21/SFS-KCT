@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-10-27T22:21:00+05:30",
+  "timestamp": "2026-10-27T22:52:00+05:30",
   "project_name": "MentorPulse — Student Progress Hub",
-  "current_phase": "LIVE_SUPABASE_INTEGRATION_VERIFIED",
-  "version": "1.2.0",
+  "current_phase": "AVATAR_AND_STORAGE_LIMITS_VERIFIED",
+  "version": "1.3.0",
   "live_backend": {
     "connected": true,
     "project_ref": "myuljbnmmcpyhbhjxffo",
@@ -20,113 +20,40 @@
     ],
     "storage_bucket": {
       "name": "progress-attachments",
-      "status": "verified_live"
+      "status": "verified_live",
+      "file_size_limit_bytes": 2097152,
+      "allowed_mime_types": ["image/jpeg", "image/png", "image/webp", "application/pdf"]
     }
   },
-  "audit_findings": {
-    "local_vs_backend_status": {
-      "initial_state": "All features initially read and wrote exclusively to browser localStorage (via appStore). Supabase client was unconfigured and unused.",
-      "implemented_state": "Dual-mode architecture implemented with explicit Production Mode vs. Demo Mode toggle. Production mode connects directly to Supabase via supabaseService (PostgreSQL + Auth + Storage). Demo mode runs in an isolated, high-fidelity local environment without external dependencies."
+  "storage_and_photo_limits": {
+    "profile_photos": {
+      "max_bytes": 512000,
+      "max_kb": 500,
+      "dimension": "400x400 square center-cropped",
+      "formats": ["image/jpeg", "image/png", "image/webp"],
+      "compression_engine": "HTML5 Canvas iterative WebP/JPEG compression in src/utils/imageUtils.ts",
+      "replacement_cleanup": "Previous avatar file safely deleted from storage upon replacement",
+      "verified": true
     },
-    "feature_breakdown": {
-      "authentication": {
-        "production_engine": "Supabase Auth (signInWithPassword, signUp, getSession, onAuthStateChange)",
-        "demo_engine": "appStore persona switcher and local user registration",
-        "verified_live": true
-      },
-      "user_profiles": {
-        "production_engine": "Supabase 'profiles' table with RLS (phone number privacy enforced)",
-        "demo_engine": "appStore localStorage profiles",
-        "verified_live": true
-      },
-      "class_management_and_tokens": {
-        "production_engine": "Supabase 'classes' table with unguessable tokens, pause/active flags, and RLS",
-        "demo_engine": "appStore classes array with token regeneration",
-        "verified_live": true
-      },
-      "invitation_registration": {
-        "production_engine": "Supabase query on 'classes' by invite_code, enrollments insert with pending status",
-        "demo_engine": "appStore token lookup and pending enrollment insert",
-        "verified_live": true
-      },
-      "approval_queue": {
-        "production_engine": "Supabase 'class_enrollments' table (approve/reject status updates)",
-        "demo_engine": "appStore enrollment review actions",
-        "verified_live": true
-      },
-      "daily_progress_feed": {
-        "production_engine": "Supabase 'daily_posts' table with class isolation RLS",
-        "demo_engine": "appStore daily posts with class filter",
-        "verified_live": true
-      },
-      "attachments_and_storage": {
-        "production_engine": "Supabase Storage bucket 'progress-attachments' with private RLS and signed URLs",
-        "demo_engine": "Base64 / data-URI storage in localStorage (max 25MB check)",
-        "verified_live": true,
-        "note": "002_storage_setup.sql executed and progress-attachments bucket verified live"
-      },
-      "reactions": {
-        "production_engine": "Supabase 'post_reactions' table with unique (post_id, user_id) constraint",
-        "demo_engine": "appStore post_reactions with deduplication",
-        "verified_live": true
-      },
-      "mentor_feedback": {
-        "production_engine": "Supabase 'post_feedback' and 'weekly_report_feedback' tables",
-        "demo_engine": "appStore feedback arrays and notification dispatcher",
-        "verified_live": true
-      },
-      "weekly_reports": {
-        "production_engine": "Supabase 'weekly_reports' table with draft/submitted status and class isolation",
-        "demo_engine": "appStore weekly reports",
-        "verified_live": true
-      },
-      "notifications": {
-        "production_engine": "Supabase 'notifications' table filtered by auth.uid()",
-        "demo_engine": "appStore notifications array with mark-as-read",
-        "verified_live": true
-      }
-    },
-    "cross_device_persistence_verification": {
-      "demo_mode": "Isolated to single browser origin (localStorage).",
-      "production_mode": "Persisted in central PostgreSQL database (Supabase). Fully operational across multiple browsers and physical devices."
-    },
-    "security_and_isolation": {
-      "row_level_security": "Enforced on all 9 tables in supabase/migrations/001_initial_schema.sql. Verified live.",
-      "url_tampering_defense": "Class IDs and URLs cannot bypass RLS. Verified live.",
-      "phone_number_privacy": "Phone column masked to non-mentors via RLS.",
-      "no_silent_fallback": "Strictly enforced in AppContext.tsx and supabaseService.ts."
+    "documents_and_attachments": {
+      "max_bytes": 2097152,
+      "max_mb": 2,
+      "formats": ["image/jpeg", "image/png", "image/webp", "application/pdf"],
+      "executable_blocking": "Strictly rejects .exe, .bat, .cmd, .sh, .php, .js, .vbs, .msi",
+      "surfaces": ["Daily progress attachments", "Weekly report reflection proof", "Certificates"],
+      "verified": true
     }
   },
-  "implementation_categories": {
-    "implemented": [
-      "Live Supabase connection configured and verified (.env with URL and anon key)",
-      "supabaseService.ts: Full Supabase integration layer for Auth, Profiles, Classes, Enrollments, Daily Posts, Weekly Reports, Reactions, Feedback, Notifications, and Storage",
-      "AppContext.tsx: Explicit dual-mode architecture (production vs. demo) with live Supabase client",
-      "Navbar.tsx: Mode indicators, instant switch button, Supabase Setup Guide modal, and production error banner",
-      "AuthPage.tsx: Live Supabase email/password login and sign-up with role selection alongside 1-click test personas",
-      "ClassManagement.tsx: Supabase class creation, token generation, token regeneration, and pause toggles",
-      "InviteRegistrationPage.tsx: Live token lookup, class details preview, and pending enrollment request",
-      "StudentDirectory.tsx: Live roster retrieval and mentor approval/rejection queue",
-      "DailyProgressFeed.tsx: Live post creation, category filtering, opt-in geolocation consent, persistent reactions, and mentor feedback",
-      "WeeklyReportsPage.tsx: Live draft/submission flow, week range reflections, and mentor evaluation notes",
-      "StudentClassesPage.tsx: Live class query and token-based joining",
-      "StudentProfileEdit.tsx: Live profile updates with protected contact number handling",
-      "StudentProfileView.tsx: Chronological journey timeline and mentor feedback",
-      "001_initial_schema.sql: 9 PostgreSQL tables, indexes, triggers (including auth.users sync), and comprehensive RLS policies - ALREADY EXECUTED & VERIFIED LIVE IN SUPABASE",
-      "002_storage_setup.sql: Private storage bucket 'progress-attachments' with student folder isolation RLS"
-    ],
-    "tested": [
-      "Live Supabase REST endpoints: profiles, classes, class_enrollments, daily_posts, weekly_reports, post_reactions, post_feedback, weekly_report_feedback, notifications (all returned HTTP 200 OK)",
-      "16 automated unit and integration tests passing in Vitest (src/test/mentorpulse.test.ts)",
-      "Zero TypeScript compilation errors (npx tsc --noEmit)",
-      "Clean production build (npm run build -> dist/ in 1.96s)",
-      "Complete end-to-end browser user journey recorded and verified"
-    ],
-    "blocked_by_missing_credentials": [],
-    "not_implemented": [
-      "Native device push notifications (Web Push API / FCM) - Handled via verified in-app activity notifications drawer"
-    ]
-  },
+  "implemented_features": [
+    "Reusable ProfilePhotoPicker component with instant 400x400 center-crop preview and compression status badge",
+    "Profile photo support integrated into Student Registration (/auth and /invite/:inviteCode) and Profile Editor",
+    "Avatar display across Student Directory, Student Profile, Mentor Dashboard, Post Feed, and Navbar",
+    "Safe photo replacement with automatic removal of unreferenced previous avatar files from storage",
+    "Strict 2 MB file limit and MIME validation on daily progress and weekly report attachments with visible UI labels",
+    "Microsoft Teams 1-click invitation share button on class cards and mentor dashboard",
+    "Full PostgreSQL RLS multi-class cohort isolation",
+    "Dual-mode architecture: Production mode connects to live Supabase, Demo mode runs in isolated local storage"
+  ],
   "checks_and_results": {
     "typecheck": {
       "command": "npx tsc --noEmit",
@@ -142,9 +69,9 @@
     "automated_unit_and_integration_tests": {
       "command": "npm run test",
       "result": "PASS",
-      "tests_passed": 16,
+      "tests_passed": 21,
       "tests_failed": 0
     }
   },
-  "single_next_action": "Open http://localhost:5173/ and register your faculty mentor account or test live synchronized student onboarding across devices."
+  "single_next_action": "Test editing your student profile or creating a daily post at http://localhost:5173/ to view the optimized photo preview and 2MB document limits."
 }

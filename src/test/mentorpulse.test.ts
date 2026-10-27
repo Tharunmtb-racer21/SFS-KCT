@@ -271,5 +271,96 @@ describe('MentorPulse - Core Domain & Security Tests', () => {
       expect(studentEntry?.student.phone).toBe('+91 98421 54321');
     });
   });
+
+  describe('7. Profile Photos, Document Validation & Storage Limits', () => {
+    it('validates photo MIME types and strictly rejects invalid or dangerous files', async () => {
+      const { validatePhotoFile } = await import('../utils/imageUtils');
+
+      // Valid images
+      const validJpg = new File(['dummy content'], 'avatar.jpg', { type: 'image/jpeg' });
+      const validPng = new File(['dummy content'], 'avatar.png', { type: 'image/png' });
+      const validWebp = new File(['dummy content'], 'avatar.webp', { type: 'image/webp' });
+
+      expect(validatePhotoFile(validJpg).valid).toBe(true);
+      expect(validatePhotoFile(validPng).valid).toBe(true);
+      expect(validatePhotoFile(validWebp).valid).toBe(true);
+
+      // Invalid formats
+      const invalidPdf = new File(['dummy content'], 'doc.pdf', { type: 'application/pdf' });
+      const dangerousScript = new File(['#!/bin/bash'], 'script.sh', { type: 'text/x-shellscript' });
+      const dangerousExe = new File(['MZ'], 'malware.exe', { type: 'application/x-msdownload' });
+
+      expect(validatePhotoFile(invalidPdf).valid).toBe(false);
+      expect(validatePhotoFile(dangerousScript).valid).toBe(false);
+      expect(validatePhotoFile(dangerousExe).valid).toBe(false);
+      expect(validatePhotoFile(dangerousExe).error).toContain('strictly prohibited');
+    });
+
+    it('strictly enforces 2MB limit on document and progress attachments', async () => {
+      const { validateAttachmentFile, MAX_DOC_BYTES } = await import('../utils/imageUtils');
+
+      expect(MAX_DOC_BYTES).toBe(2 * 1024 * 1024);
+
+      // Valid 1MB PDF
+      const validPdf = new File([new Uint8Array(1024 * 1024)], 'lab-experiment.pdf', { type: 'application/pdf' });
+      expect(validateAttachmentFile(validPdf).valid).toBe(true);
+
+      // Oversized 2.5MB PDF
+      const oversizedPdf = new File([new Uint8Array(2.5 * 1024 * 1024)], 'thesis.pdf', { type: 'application/pdf' });
+      const result = validateAttachmentFile(oversizedPdf);
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('exceeds the 2 MB maximum limit');
+
+      // Rejects executable files
+      const dangerousBat = new File(['calc.exe'], 'run.bat', { type: 'text/plain' });
+      expect(validateAttachmentFile(dangerousBat).valid).toBe(false);
+    });
+
+    it('supabaseService.uploadAvatar enforces 500 KB limit and rejects oversized files', async () => {
+      const { supabaseService } = await import('../services/supabaseService');
+
+      // Mock oversized photo: 600 KB
+      const oversizedPhoto = new File([new Uint8Array(600 * 1024)], 'photo.jpg', { type: 'image/jpeg' });
+
+      await expect(
+        supabaseService.uploadAvatar('test-user', oversizedPhoto)
+      ).rejects.toThrow('Profile photo exceeds 500 KB limit');
+    });
+
+    it('supabaseService.uploadAttachment enforces 2 MB limit and blocks script files', async () => {
+      const { supabaseService } = await import('../services/supabaseService');
+
+      // Oversized 3MB file
+      const oversizedFile = new File([new Uint8Array(3 * 1024 * 1024)], 'large-proof.pdf', { type: 'application/pdf' });
+      await expect(
+        supabaseService.uploadAttachment('test-student', oversizedFile)
+      ).rejects.toThrow('exceeds maximum allowed limit of 2 MB');
+
+      // Executable file
+      const scriptFile = new File(['echo test'], 'exploit.sh', { type: 'application/x-sh' });
+      await expect(
+        supabaseService.uploadAttachment('test-student', scriptFile)
+      ).rejects.toThrow('strictly prohibited');
+    });
+
+    it('persists avatar_url reference in profile and supports replacement', () => {
+      // 1. Initial avatar update
+      const updated = store.updateProfile('student-ece-1', {
+        avatar_url: 'https://myuljbnmmcpyhbhjxffo.supabase.co/storage/v1/object/sign/progress-attachments/student-ece-1/avatar_1.webp'
+      });
+      expect(updated.avatar_url).toContain('avatar_1.webp');
+
+      // 2. Verified in student directory lookup
+      const enrollments = store.getEnrollmentsForClass('class-ece-2024');
+      const student = enrollments.find(e => e.student_id === 'student-ece-1')?.student;
+      expect(student?.avatar_url).toContain('avatar_1.webp');
+
+      // 3. Photo replacement
+      const replaced = store.updateProfile('student-ece-1', {
+        avatar_url: 'https://myuljbnmmcpyhbhjxffo.supabase.co/storage/v1/object/sign/progress-attachments/student-ece-1/avatar_2.webp'
+      });
+      expect(replaced.avatar_url).toContain('avatar_2.webp');
+    });
+  });
 });
 

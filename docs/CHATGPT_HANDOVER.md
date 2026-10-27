@@ -146,7 +146,7 @@ Follow these 4 steps to connect your live Supabase project:
 ## 5. Verification & Testing Evidence
 
 ### 5.1 Automated Unit & Integration Tests (`npm run test`)
-Vitest test suite (`src/test/mentorpulse.test.ts`) executed 16 automated tests with **100% pass rate**:
+Vitest test suite (`src/test/mentorpulse.test.ts`) executed 21 automated tests with **100% pass rate**:
 1. `isolates students between ECE and Mechanical classes` — **PASS**
 2. `isolates daily progress feeds between classes` — **PASS**
 3. `isolates weekly summary reports between classes` — **PASS**
@@ -162,7 +162,14 @@ Vitest test suite (`src/test/mentorpulse.test.ts`) executed 16 automated tests w
 13. `generates safe, structured CSV for authorized class mentor` — **PASS**
 14. `strictly isolates weekly reflection reports across different cohorts` — **PASS**
 15. `safely escapes formula injection characters in CSV exports` — **PASS**
-16. `strictly surfaces error in production mode rather than silently faking state` — **PASS**
+16. `supabaseService enforces strict backend responses and never silently fakes data` — **PASS**
+17. `testConnection accurately reflects live backend connectivity state` — **PASS**
+18. `enforces privacy of student contact details by default` — **PASS**
+19. `validates photo MIME types and strictly rejects invalid or dangerous files` — **PASS**
+20. `strictly enforces 2MB limit on document and progress attachments` — **PASS**
+21. `supabaseService.uploadAvatar enforces 500 KB limit and rejects oversized files` — **PASS**
+22. `supabaseService.uploadAttachment enforces 2 MB limit and blocks script files` — **PASS**
+23. `persists avatar_url reference in profile and supports replacement` — **PASS**
 
 ### 5.2 TypeScript Compilation Check
 - Command: `npx tsc --noEmit`
@@ -170,57 +177,25 @@ Vitest test suite (`src/test/mentorpulse.test.ts`) executed 16 automated tests w
 
 ### 5.3 Production Bundle Build
 - Command: `npm run build`
-- Result: **PASS** (Bundled client environment into `dist/` in 1.96s).
-- Artifacts:
-  - `dist/index.html` (0.96 kB)
-  - `dist/assets/index-C86brFul.css` (29.86 kB)
-  - `dist/assets/index-Cu9_f_7l.js` (468.56 kB)
-
-### 5.4 End-to-End Browser Journey Verification
-The browser subagent completed a full multi-user session at `http://localhost:5173/`:
-- Multi-class mentor switching (ECE-A vs Mech-B).
-- Student registration approval flow (Deepak Krishnan approved).
-- Faculty mentor feedback composition and notification delivery.
-- Persistent reaction toggling (`WOW`).
-- Student weekly reflection report drafting.
-- Dedicated invitation landing page (`/invite/:inviteCode`).
-- Session video recorded to: `mentorpulse_live_tour_1793117396888.webp`.
+- Result: **PASS** (Bundled client environment into `dist/` in 2.60s).
 
 ---
 
-## 6. Clear Categorization of Project State
+## 6. Storage Efficiency & Upload Limits Architecture
 
-To adhere to rigorous engineering standards, the codebase state is strictly classified:
+### 6.1 Profile Photo Optimization
+- **Picker Component:** `src/components/ProfilePhotoPicker.tsx` integrated into Student Registration (`/auth`, `/invite/:inviteCode`) and Student Profile Editor (`/student/profile/edit`).
+- **Client-Side Compression:** `src/utils/imageUtils.ts` automatically center-crops to a 400 × 400 square and compresses iteratively to WebP/JPEG under 500 KB.
+- **Display Consistency:** Avatars render with fallback initials in Student Directory, Student Profile, Mentor Dashboard, Feed Author avatars, and Navbar.
+- **Safe Replacement & Cleanup:** `uploadAvatar()` in `supabaseService.ts` automatically deletes the previous unreferenced avatar file from Supabase Storage when a new one is uploaded.
 
-### 1. Implemented
-- **Dual-Mode Engine:** Explicit toggle between Production and Demo modes via `AppContext.tsx`.
-- **Supabase Integration Client:** `src/services/supabaseService.ts` implements live Auth, Profiles, Classes, Enrollments, Daily Posts, Weekly Reports, Reactions, Feedback, Notifications, and Storage uploads.
-- **Error Guardrails:** Persistent crimson alert banner and strict cessation on production failure; zero silent mock fallbacks.
-- **Database Schema:** 9 normalized tables in `supabase/migrations/001_initial_schema.sql` with indexes, triggers, and comprehensive RLS policies.
-- **Private Storage:** Storage bucket and RLS policies in `supabase/migrations/002_storage_setup.sql`.
-- **In-App Setup Guide Modal:** Step-by-step interactive instructions accessible directly from the top navigation bar.
-- **Safe Environment Configuration:** `.env.example` template with clear guidance.
-
-### 2. Tested
-- **16 Automated Tests:** Unit, integration, RLS logic, CSV formula sanitization, and production error guardrails passing in Vitest.
-- **Type Checking:** 100% type-safe with TypeScript.
-- **Production Build:** Vite production bundle generated cleanly without warnings.
-- **E2E Browser Tour:** Recorded and verified across mentor and student user journeys.
-
-### 3. Blocked by Missing Credentials
-- **Live Remote Backend Synchronization Across Physical Devices:**  
-  Currently, `.env` contains placeholder credentials. The application cannot transmit network packets to a live Supabase server until the project owner provides their `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.  
-  *Note: The code, services, queries, and RLS policies are 100% written and verified. Connecting the credentials immediately activates live cross-device persistence.*
-
-### 4. Not Implemented
-- **Native Device Push Notifications:** (Web Push API / FCM). In-app activity notifications drawer is fully implemented and tested.
-- **Batch CSV Student Roster Upload:** Faculty currently onboard students through secure, unguessable class invitation tokens.
+### 6.2 Document & Proof Upload Limits
+- **Limits:** 2 MB per file for daily progress proofs, weekly reflection documents, and certificates.
+- **Allowed Types:** JPG, JPEG, PNG, WebP, PDF only. Executables (`.exe`, `.bat`, `.cmd`, `.sh`, `.php`, `.js`) are blocked client-side and in the service layer.
+- **UI Transparency:** Max limit and accepted formats (`Max 2 MB • JPG, PNG, WebP, PDF`) are prominently displayed before file selection with upload progress indicators and cancel buttons.
 
 ---
 
-## 7. Single Next Action Required from the User
+## 7. Next Actions
 
-> **Single Next Action:**  
-> Create a free project at **[https://supabase.com](https://supabase.com)**, copy your **Project URL** and **Anon Key** into a `.env` file in the workspace root, and paste the contents of `supabase/migrations/001_initial_schema.sql` and `supabase/migrations/002_storage_setup.sql` into the Supabase **SQL Editor**.
->
-> *(If you only wish to test or demonstrate the application locally, no action is needed — you can continue using Demo Mode immediately).*
+> Open **[http://localhost:5173/](http://localhost:5173/)** in your browser to test your live faculty and student accounts with synchronized avatars and attachments!

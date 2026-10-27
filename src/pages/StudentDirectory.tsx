@@ -233,13 +233,26 @@ export const StudentDirectory: React.FC = () => {
                 <div>
                   {/* Top info */}
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h2 className="font-bold text-slate-900 text-sm">{student.full_name}</h2>
-                      <div className="font-mono text-xs text-teal-700 font-medium">
-                        {student.student_reg_no || 'Register No Pending'}
+                    <div className="flex items-center gap-3">
+                      {student.avatar_url ? (
+                        <img 
+                          src={student.avatar_url} 
+                          alt={student.full_name} 
+                          className="w-10 h-10 rounded-full object-cover border border-slate-200 shadow-2xs shrink-0" 
+                        />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-navy-800 to-navy-950 text-white font-bold text-xs flex items-center justify-center shrink-0 shadow-2xs">
+                          {student.full_name.charAt(0)}
+                        </div>
+                      )}
+                      <div>
+                        <h2 className="font-bold text-slate-900 text-sm">{student.full_name}</h2>
+                        <div className="font-mono text-xs text-teal-700 font-medium">
+                          {student.student_reg_no || 'Register No Pending'}
+                        </div>
                       </div>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
                       isPending ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
                     }`}>
                       {isPending ? 'Pending' : 'Enrolled'}

@@ -15,8 +15,10 @@ import {
   AlertTriangle, 
   UploadCloud,
   FileCheck,
-  Loader2
+  Loader2,
+  X
 } from 'lucide-react';
+import { validateAttachmentFile } from '../utils/imageUtils';
 
 const REACTION_TYPES: ReactionType[] = ['WOW', 'Great', 'Excellent', 'Appreciate'];
 
@@ -133,17 +135,24 @@ export const DailyProgressFeed: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 25 * 1024 * 1024) {
-      alert('File size exceeds the 25MB maximum limit.');
+    const validation = validateAttachmentFile(file);
+    if (!validation.valid) {
+      setFormError(validation.error || 'Invalid attachment.');
       return;
     }
 
+    setFormError('');
     setSelectedFileObj(file);
     setAttachedFile({
       name: file.name,
       type: file.type.startsWith('image') ? 'image' : file.type.includes('pdf') ? 'pdf' : 'doc',
       size: file.size,
     });
+  };
+
+  const handleRemoveAttachment = () => {
+    setSelectedFileObj(null);
+    setAttachedFile(null);
   };
 
   const handleCreatePost = async (e: React.FormEvent) => {
@@ -482,18 +491,21 @@ export const DailyProgressFeed: React.FC = () => {
               )}
             </div>
 
-            {/* Attachment Upload Simulation & Real Storage */}
+            {/* Attachment Upload (Strict 2MB limit, PDF/Images only) */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Attach Proof / Evidence (PDF, Image, Certificate, Max 25MB)
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Attach Proof / Evidence
+                </label>
+                <span className="text-[10px] text-slate-400 font-medium">Max 2 MB • JPG, PNG, WebP, PDF</span>
+              </div>
               <div className="flex items-center gap-3">
                 <label className="px-3 py-1.5 bg-white border border-slate-300 text-slate-700 rounded-lg text-xs font-medium cursor-pointer hover:bg-slate-100 flex items-center gap-1.5">
                   <UploadCloud className="w-3.5 h-3.5 text-teal-600" />
-                  Choose File
+                  {attachedFile ? 'Change File' : 'Choose File'}
                   <input
                     type="file"
-                    accept="image/*,.pdf,video/mp4"
+                    accept="image/jpeg,image/png,image/webp,application/pdf"
                     onChange={handleFileChange}
                     className="hidden"
                   />
@@ -506,10 +518,19 @@ export const DailyProgressFeed: React.FC = () => {
                 )}
 
                 {attachedFile && (
-                  <span className="text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded font-medium flex items-center gap-1">
-                    <FileCheck className="w-3.5 h-3.5" />
-                    {attachedFile.name} ({(attachedFile.size / 1024).toFixed(0)} KB)
-                  </span>
+                  <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-xs font-medium">
+                    <FileCheck className="w-3.5 h-3.5 shrink-0" />
+                    <span className="truncate max-w-[200px]">{attachedFile.name}</span>
+                    <span className="text-[10px] text-emerald-600">({(attachedFile.size / 1024).toFixed(0)} KB)</span>
+                    <button
+                      type="button"
+                      onClick={handleRemoveAttachment}
+                      className="ml-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                      title="Remove attachment"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -603,9 +624,17 @@ export const DailyProgressFeed: React.FC = () => {
                 {/* Author row & options */}
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-navy-800 to-navy-950 text-white flex items-center justify-center font-bold text-sm">
-                      {author?.full_name?.charAt(0) || 'S'}
-                    </div>
+                    {author?.avatar_url ? (
+                      <img 
+                        src={author.avatar_url} 
+                        alt={author.full_name} 
+                        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0" 
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-navy-800 to-navy-950 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                        {author?.full_name?.charAt(0) || 'S'}
+                      </div>
+                    )}
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="font-bold text-slate-900 text-sm">{author?.full_name}</span>

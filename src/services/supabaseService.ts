@@ -623,15 +623,98 @@ export class SupabaseService {
     }
   }
 
-  // --- Attachments & Storage ---
-  public async uploadAttachment(studentId: string, file: File): Promise<{ url: string; name: string; size: number; type: string }> {
+  // --- Profile Photo Storage ---
+  public async uploadAvatar(
+    userId: string, 
+    file: File, 
+    previousAvatarUrl?: string
+  ): Promise<{ path: string; url: string }> {
     const client = this.ensureClient();
-    if (file.size > 25 * 1024 * 1024) {
-      throw new Error('File exceeds maximum size limit of 25MB.');
+    
+    // Strict 500 KB limit validation
+    if (file.size > 500 * 1024) {
+      throw new Error(`Profile photo exceeds 500 KB limit (${Math.round(file.size / 1024)} KB).`);
+    }
+
+    const ext = file.name.split('.').pop() || 'webp';
+    const path = `${userId}/avatar_${Date.now()}.${ext}`;
+
+    // Safely remove previous avatar file if exists and belongs to this user
+    if (previousAvatarUrl) {
+      try {
+        const oldMatch = previousAvatarUrl.match(new RegExp(`${userId}/avatar_[^?&]+`));
+        if (oldMatch) {
+          await client.storage.from('progress-attachments').remove([oldMatch[0]]);
+        }
+      } catch (err) {
+        console.warn('Could not remove previous avatar:', err);
+      }
+    }
+
+    const { error: uploadError } = await client.storage
+      .from('progress-attachments')
+      .upload(path, file, { 
+        cacheControl: '86400', 
+        upsert: true,
+        contentType: file.type 
+      });
+
+    if (uploadError) throw new Error(`Avatar upload failed: ${uploadError.message}`);
+
+    // Generate signed URL (valid for 1 year)
+    const { data: signedData, error: signError } = await client.storage
+      .from('progress-attachments')
+      .createSignedUrl(path, 60 * 60 * 24 * 365);
+
+    if (signError || !signedData?.signedUrl) {
+      throw new Error(`Failed to generate signed avatar URL: ${signError?.message || 'Storage error'}`);
+    }
+
+    // Update profile record with new avatar_url
+    await this.updateProfile(userId, { avatar_url: signedData.signedUrl });
+
+    return {
+      path,
+      url: signedData.signedUrl,
+    };
+  }
+
+  public async deleteAvatar(userId: string, avatarUrl: string): Promise<void> {
+    const client = this.ensureClient();
+    try {
+      const match = avatarUrl.match(new RegExp(`${userId}/avatar_[^?&]+`));
+      if (match) {
+        await client.storage.from('progress-attachments').remove([match[0]]);
+      }
+      await this.updateProfile(userId, { avatar_url: undefined });
+    } catch (err: any) {
+      throw new Error(`Failed to remove avatar: ${err.message}`);
+    }
+  }
+
+  // --- Attachments & Storage ---
+  public async uploadAttachment(
+    studentId: string, 
+    file: File,
+    subfolder: 'posts' | 'reports' = 'posts'
+  ): Promise<{ path: string; url: string; name: string; size: number; type: string }> {
+    const client = this.ensureClient();
+    
+    // Strict 2MB Limit
+    if (file.size > 2 * 1024 * 1024) {
+      const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      throw new Error(`File size (${sizeMB} MB) exceeds maximum allowed limit of 2 MB.`);
+    }
+
+    // MIME and extension check (no executables)
+    const lowerName = file.name.toLowerCase();
+    const isDangerous = /\.(exe|bat|cmd|sh|php|js|vbs|msi)$/i.test(lowerName);
+    if (isDangerous) {
+      throw new Error('Executable and script files are strictly prohibited.');
     }
 
     const cleanFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const path = `${studentId}/${Date.now()}-${cleanFileName}`;
+    const path = `${studentId}/${subfolder}/${Date.now()}-${cleanFileName}`;
 
     const { error: uploadError } = await client.storage
       .from('progress-attachments')
@@ -639,16 +722,17 @@ export class SupabaseService {
 
     if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
 
-    // Generate signed URL (valid for 7 days)
+    // Generate signed URL (valid for 30 days)
     const { data: signedData, error: signError } = await client.storage
       .from('progress-attachments')
-      .createSignedUrl(path, 60 * 60 * 24 * 7);
+      .createSignedUrl(path, 60 * 60 * 24 * 30);
 
     if (signError || !signedData?.signedUrl) {
       throw new Error(`Failed to generate signed URL: ${signError?.message || 'Unknown storage error'}`);
     }
 
     return {
+      path,
       url: signedData.signedUrl,
       name: file.name,
       size: file.size,

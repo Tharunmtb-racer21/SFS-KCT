@@ -3,18 +3,19 @@
 -- Migration 002: Storage Buckets & Policies for Safe Attachments (Idempotent)
 -- =============================================================================
 
--- Create private bucket for student progress attachments (certificates, proofs, photos, reports)
+-- Create or update private bucket for student progress attachments (photos, certificates, proofs, reports)
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
     'progress-attachments',
     'progress-attachments',
     false, -- Private bucket: access requires signed URLs or authenticated RLS
-    26214400, -- 25MB max size
-    ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf', 'video/mp4', 'video/webm']
+    2097152, -- 2MB max size
+    ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
 )
 ON CONFLICT (id) DO UPDATE SET
     public = false,
-    file_size_limit = 26214400;
+    file_size_limit = 2097152,
+    allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
 
 -- Drop existing policies if they already exist to allow safe re-runs
 DROP POLICY IF EXISTS "Students upload own attachments" ON storage.objects;

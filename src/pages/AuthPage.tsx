@@ -13,6 +13,7 @@ import {
   Info
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { ProfilePhotoPicker } from '../components/ProfilePhotoPicker';
 
 export const AuthPage: React.FC = () => {
   const { login, switchUser, activeMode, isConfigured } = useApp();
@@ -31,6 +32,8 @@ export const AuthPage: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [regNo, setRegNo] = useState('');
   const [department, setDepartment] = useState('Electronics and Communication Engineering');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,6 +91,16 @@ export const AuthPage: React.FC = () => {
           student_reg_no: role === 'student' ? regNo.trim() : undefined,
           department: department.trim(),
         });
+
+        // Upload profile photo if student selected one
+        if (avatarFile && role === 'student') {
+          try {
+            await supabaseService.uploadAvatar(profile.id, avatarFile);
+          } catch (pErr: any) {
+            console.warn('Profile photo upload warning:', pErr);
+          }
+        }
+
         if (profile.role === 'mentor') {
           navigate('/mentor/dashboard');
         } else {
@@ -102,6 +115,7 @@ export const AuthPage: React.FC = () => {
           student_reg_no: role === 'student' ? regNo.trim() : undefined,
           department: department.trim(),
           skills: [],
+          avatar_url: avatarPreview || undefined,
         });
         if (newProfile.role === 'mentor') {
           navigate('/mentor/dashboard');
@@ -417,6 +431,18 @@ export const AuthPage: React.FC = () => {
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
+
+                {role === 'student' && (
+                  <ProfilePhotoPicker
+                    currentPhotoUrl={avatarPreview || undefined}
+                    fallbackInitials={fullName || 'ST'}
+                    onPhotoSelected={(file, preview) => {
+                      setAvatarFile(file);
+                      setAvatarPreview(preview);
+                    }}
+                    onError={(msg) => setErrorMsg(msg)}
+                  />
+                )}
 
                 <button
                   type="submit"

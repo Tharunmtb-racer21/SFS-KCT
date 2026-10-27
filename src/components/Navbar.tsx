@@ -343,7 +343,15 @@ export const Navbar: React.FC = () => {
                   onClick={() => navigate(isMentor ? '/mentor/dashboard' : '/student/profile')}
                   className="hidden sm:flex items-center gap-2 text-xs text-slate-300 hover:text-white"
                 >
-                  <UserCircle className="w-6 h-6 text-teal-400" />
+                  {currentUser.avatar_url ? (
+                    <img 
+                      src={currentUser.avatar_url} 
+                      alt="" 
+                      className="w-6 h-6 rounded-full object-cover border border-teal-500/50" 
+                    />
+                  ) : (
+                    <UserCircle className="w-6 h-6 text-teal-400" />
+                  )}
                   <span className="font-medium">{currentUser.full_name.split(' ')[0]}</span>
                 </button>
                 <button

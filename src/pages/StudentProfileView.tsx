@@ -133,9 +133,17 @@ export const StudentProfileView: React.FC = () => {
       <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-6">
         <div className="flex flex-col sm:flex-row items-start justify-between gap-4">
           <div className="flex items-start gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-navy-800 to-navy-950 text-white flex items-center justify-center font-bold text-xl shadow-md">
-              {student.full_name.charAt(0)}
-            </div>
+            {student.avatar_url ? (
+              <img 
+                src={student.avatar_url} 
+                alt={student.full_name} 
+                className="w-16 h-16 rounded-2xl object-cover border-2 border-slate-200 shadow-md shrink-0" 
+              />
+            ) : (
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-navy-800 to-navy-950 text-white flex items-center justify-center font-bold text-xl shadow-md shrink-0">
+                {student.full_name.charAt(0)}
+              </div>
+            )}
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-xl font-bold text-navy-950">{student.full_name}</h1>

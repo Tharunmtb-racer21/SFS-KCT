@@ -13,6 +13,7 @@ import {
   ArrowRight,
   Loader2
 } from 'lucide-react';
+import { ProfilePhotoPicker } from '../components/ProfilePhotoPicker';
 
 export const InviteRegistrationPage: React.FC = () => {
   const { inviteCode } = useParams<{ inviteCode: string }>();
@@ -32,6 +33,8 @@ export const InviteRegistrationPage: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [skillsStr, setSkillsStr] = useState('');
   const [careerGoals, setCareerGoals] = useState('');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successInfo, setSuccessInfo] = useState<{ status: string; className: string } | null>(null);
@@ -169,6 +172,15 @@ export const InviteRegistrationPage: React.FC = () => {
           career_goals: careerGoals.trim() || undefined,
         });
 
+        // Upload profile photo if selected
+        if (avatarFile) {
+          try {
+            await supabaseService.uploadAvatar(newStudent.id, avatarFile);
+          } catch (photoErr: any) {
+            console.warn('Profile photo upload warning:', photoErr);
+          }
+        }
+
         const enrollment = await supabaseService.requestEnrollment(targetClass.id, newStudent.id);
         await refreshData();
         setActiveClassId(targetClass.id);
@@ -188,6 +200,7 @@ export const InviteRegistrationPage: React.FC = () => {
           phone: phone.trim() || undefined,
           skills: skillsStr.split(',').map(s => s.trim()).filter(Boolean),
           career_goals: careerGoals.trim() || undefined,
+          avatar_url: avatarPreview || undefined,
         });
 
         const enrollment = appStore.requestEnrollment(targetClass.id, newStudent.id);
@@ -308,6 +321,17 @@ export const InviteRegistrationPage: React.FC = () => {
                   {formError}
                 </div>
               )}
+
+              {/* Profile Photo Picker */}
+              <ProfilePhotoPicker
+                currentPhotoUrl={avatarPreview || undefined}
+                fallbackInitials={fullName || 'ST'}
+                onPhotoSelected={(file, preview) => {
+                  setAvatarFile(file);
+                  setAvatarPreview(preview);
+                }}
+                onError={(msg) => setFormError(msg)}
+              />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
