@@ -289,17 +289,46 @@ export class SupabaseService {
   // --- Enrollments ---
   public async getEnrollmentsForClass(classId: string): Promise<(ClassEnrollment & { student: Profile })[]> {
     const client = this.ensureClient();
-    const { data, error } = await client
+    try {
+      const { data, error } = await client
+        .from('class_enrollments')
+        .select(`
+          *,
+          student:profiles!student_id(*)
+        `)
+        .eq('class_id', classId)
+        .order('requested_at', { ascending: false });
+
+      if (!error && data) return (data || []).filter((item: any) => Boolean(item.student));
+    } catch {
+      // Disambiguated join fallback
+    }
+
+    // Resilient fallback: fetch enrollments and hydrate profiles directly
+    const { data: enrollments, error: enrollErr } = await client
       .from('class_enrollments')
-      .select(`
-        *,
-        student:profiles(*)
-      `)
+      .select('*')
       .eq('class_id', classId)
       .order('requested_at', { ascending: false });
 
-    if (error) throw new Error(error.message);
-    return (data || []).filter((item: any) => Boolean(item.student));
+    if (enrollErr) throw new Error(enrollErr.message);
+    if (!enrollments || enrollments.length === 0) return [];
+
+    const studentIds = [...new Set(enrollments.map((e: any) => e.student_id))];
+    const { data: profiles, error: profErr } = await client
+      .from('profiles')
+      .select('*')
+      .in('id', studentIds);
+
+    if (profErr) throw new Error(profErr.message);
+
+    const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+    return enrollments
+      .map((e: any) => ({
+        ...e,
+        student: profileMap.get(e.student_id),
+      }))
+      .filter((item: any) => Boolean(item.student));
   }
 
   public async getEnrollmentsForStudent(studentId: string): Promise<(ClassEnrollment & { class: ClassGroup })[]> {
