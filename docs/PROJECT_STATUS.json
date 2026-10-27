@@ -74,5 +74,21 @@
       "tests_failed": 0
     }
   },
-  "single_next_action": "Run migration 003_daily_weekly_refinements.sql in your Supabase SQL Editor if you wish to enforce the new comment table and constraints directly in Postgres."
+  "student_authentication": {
+    "password_required": false,
+    "method": "Institutional Roll/Register Number or Institutional Email",
+    "faculty_recognition_fields": [
+      "full_name",
+      "student_reg_no",
+      "department",
+      "section",
+      "email",
+      "phone",
+      "avatar_url",
+      "skills",
+      "career_goals"
+    ],
+    "direct_navigation": true
+  },
+  "single_next_action": "Run migration 004_fix_student_enrollments_rls.sql in your Supabase SQL Editor and toggle off Vercel Authentication under Project Settings -> Deployment Protection."
 }
