@@ -118,14 +118,14 @@ export const MentorDashboard: React.FC = () => {
 
   const handleWhatsAppShare = () => {
     const text = encodeURIComponent(
-      `Hello! Please register on MentorPulse for our class group "${activeClass.name}" (${activeClass.department}): ${inviteUrl}`
+      `Hello! Please register on MentorPulse by THARUN N E (SFS @ Kumaraguru College of Technology) for our class group "${activeClass.name}" (${activeClass.department}): ${inviteUrl}`
     );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
   const handleTeamsShare = () => {
     const text = encodeURIComponent(
-      `Hello! Please register on MentorPulse for our class group "${activeClass.name}" (${activeClass.department}).`
+      `Hello! Please register on MentorPulse by THARUN N E (SFS @ Kumaraguru College of Technology) for our class group "${activeClass.name}" (${activeClass.department}).`
     );
     window.open(`https://teams.microsoft.com/share?href=${encodeURIComponent(inviteUrl)}&msgText=${text}`, '_blank');
   };
@@ -181,10 +181,14 @@ export const MentorDashboard: React.FC = () => {
       {/* Class Switcher Tabs Banner */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-semibold uppercase tracking-wider text-teal-600 bg-teal-50 px-2 py-0.5 rounded-md">
               {activeClass.department}
             </span>
+            <span className="text-xs text-slate-400">&bull;</span>
+            <span className="text-xs font-semibold text-slate-800">MentorPulse <span className="text-teal-700">by THARUN N E</span></span>
+            <span className="text-xs text-slate-400">&bull;</span>
+            <span className="text-xs text-teal-800 font-medium">SFS @ Kumaraguru College of Technology</span>
             <span className="text-xs text-slate-400">&bull;</span>
             <span className="text-xs text-slate-500 font-medium">{activeClass.academic_year} &bull; {activeClass.semester}</span>
           </div>

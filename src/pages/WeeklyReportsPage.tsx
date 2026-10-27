@@ -265,12 +265,14 @@ export const WeeklyReportsPage: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-semibold uppercase text-teal-700 bg-teal-50 px-2 py-0.5 rounded">
               {activeClass.name}
             </span>
             <span className="text-xs text-slate-400">&bull;</span>
-            <span className="text-xs text-slate-500 font-medium">Weekly Reflections</span>
+            <span className="text-xs font-semibold text-slate-800">MentorPulse <span className="text-teal-700">by THARUN N E</span></span>
+            <span className="text-xs text-slate-400">&bull;</span>
+            <span className="text-xs text-teal-800 font-medium">SFS @ Kumaraguru College of Technology</span>
           </div>
           <h1 className="text-2xl font-bold text-navy-950 mt-1">
             {isMentor ? 'Weekly Reports Review & Grading' : 'My Weekly Summary Reports'}

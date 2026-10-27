@@ -93,7 +93,7 @@ export const ClassManagement: React.FC = () => {
   const handleWhatsAppShare = (classItem: any) => {
     const url = `${window.location.origin}/invite/${classItem.invite_code}`;
     const text = encodeURIComponent(
-      `Hello students! Please register for our class group "${classItem.name}" (${classItem.department}) on MentorPulse: ${url}`
+      `Hello students! Please register for our class group "${classItem.name}" (${classItem.department}) on MentorPulse by THARUN N E (SFS @ Kumaraguru College of Technology): ${url}`
     );
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
@@ -101,7 +101,7 @@ export const ClassManagement: React.FC = () => {
   const handleTeamsShare = (classItem: any) => {
     const url = `${window.location.origin}/invite/${classItem.invite_code}`;
     const text = encodeURIComponent(
-      `Hello students! Please register for our class group "${classItem.name}" (${classItem.department}) on MentorPulse.`
+      `Hello students! Please register for our class group "${classItem.name}" (${classItem.department}) on MentorPulse by THARUN N E (SFS @ Kumaraguru College of Technology).`
     );
     window.open(`https://teams.microsoft.com/share?href=${encodeURIComponent(url)}&msgText=${text}`, '_blank');
   };
@@ -138,6 +138,11 @@ export const ClassManagement: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-xs font-semibold text-slate-800">MentorPulse <span className="text-teal-700">by THARUN N E</span></span>
+            <span className="text-xs text-slate-400">&bull;</span>
+            <span className="text-xs text-teal-800 font-medium">SFS @ Kumaraguru College of Technology</span>
+          </div>
           <h1 className="text-2xl font-bold text-navy-950">Classes & Invitations</h1>
           <p className="text-xs text-slate-500 mt-1">
             Manage your independent departmental cohorts, unguessable registration tokens, and approval settings.

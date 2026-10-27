@@ -152,7 +152,7 @@ export const StudentProfileView: React.FC = () => {
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                {student.department} &bull; {student.academic_year}
+                {student.department} &bull; {student.academic_year} &bull; <span className="text-teal-700 font-semibold">SFS @ Kumaraguru College of Technology</span>
               </p>
               <div className="flex items-center gap-4 mt-3 text-xs text-slate-600 flex-wrap">
                 <span className="flex items-center gap-1">

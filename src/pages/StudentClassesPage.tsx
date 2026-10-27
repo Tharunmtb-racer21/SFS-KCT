@@ -111,6 +111,11 @@ export const StudentClassesPage: React.FC = () => {
     <div className="max-w-4xl mx-auto space-y-6">
       {/* Header */}
       <div>
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <span className="text-xs font-semibold text-slate-800">MentorPulse <span className="text-teal-700">by THARUN N E</span></span>
+          <span className="text-xs text-slate-400">&bull;</span>
+          <span className="text-xs text-teal-800 font-medium">SFS @ Kumaraguru College of Technology</span>
+        </div>
         <h1 className="text-2xl font-bold text-navy-950">My Enrolled Classes & Cohorts</h1>
         <p className="text-xs text-slate-500 mt-1">
           Review the classes you belong to, check mentor approval status, or enroll in another class group.

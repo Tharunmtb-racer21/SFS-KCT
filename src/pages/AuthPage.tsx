@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ProfilePhotoPicker } from '../components/ProfilePhotoPicker';
+import { Footer } from '../components/Footer';
 
 export const AuthPage: React.FC = () => {
   const { login, switchUser, activeMode, isConfigured } = useApp();
@@ -151,16 +152,19 @@ export const AuthPage: React.FC = () => {
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
-                <span className="font-bold text-lg text-white">MentorPulse</span>
-                <span className="block text-[11px] text-teal-300">Student Progress Hub</span>
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-bold text-lg text-white">MentorPulse</span>
+                  <span className="text-teal-300 font-semibold text-xs">by THARUN N E</span>
+                </div>
+                <span className="block text-[11px] text-teal-200 font-medium">SFS @ Kumaraguru College of Technology</span>
               </div>
             </div>
 
             <h2 className="text-xl font-bold text-white tracking-tight leading-snug">
-              Academic mentoring & progress tracking for faculty and students.
+              Academic mentoring & progress tracking for SFS @ Kumaraguru College of Technology.
             </h2>
-            <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              MentorPulse isolates multiple departments, enforces unguessable registration tokens, and maintains verifiable progress records.
+            <p className="text-xs text-slate-300 mt-2 leading-relaxed">
+              MentorPulse by THARUN N E isolates multiple departments, enforces unguessable registration tokens, and maintains verifiable progress records.
             </p>
 
             {/* Quick Demo Personas Box */}
@@ -238,12 +242,12 @@ export const AuthPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="text-[11px] text-slate-500 mt-6 pt-4 border-t border-navy-900 flex items-center justify-between">
+          <div className="text-[11px] text-slate-400 mt-6 pt-4 border-t border-navy-900 flex flex-col sm:flex-row items-center justify-between gap-1">
             <span className="flex items-center gap-1.5">
               <Database className="w-3.5 h-3.5 text-teal-400" />
               {activeMode === 'production' ? 'Production Supabase Mode' : 'Local Storage Demo Mode'}
             </span>
-            <span>Version 1.0</span>
+            <span className="text-teal-300 font-semibold">Dev by THARUN N E</span>
           </div>
         </div>
 
@@ -326,7 +330,7 @@ export const AuthPage: React.FC = () => {
                   disabled={isSubmitting}
                   className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
                 >
-                  {isSubmitting ? 'Authenticating...' : 'Sign In to MentorPulse'}
+                  {isSubmitting ? 'Authenticating...' : 'Sign In to MentorPulse by THARUN N E'}
                   <ArrowRight className="w-3.5 h-3.5 text-teal-400" />
                 </button>
               </form>
@@ -456,10 +460,14 @@ export const AuthPage: React.FC = () => {
             )}
           </div>
 
-          <div className="pt-6 text-center text-[11px] text-slate-400">
-            Protected by Row Level Security (RLS) & Verified Class Isolation.
+          <div className="pt-6 text-center text-[11px] text-slate-500 border-t border-slate-100 mt-4 space-y-1">
+            <p className="font-semibold text-slate-700">MentorPulse by THARUN N E &bull; SFS @ Kumaraguru College of Technology</p>
+            <p className="text-teal-700 font-bold text-xs">Developed by THARUN N E</p>
           </div>
         </div>
+      </div>
+      <div className="w-full max-w-4xl mt-6">
+        <Footer />
       </div>
     </div>
   );

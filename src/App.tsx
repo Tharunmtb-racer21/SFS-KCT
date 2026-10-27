@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
+import { Footer } from './components/Footer';
 import { MentorDashboard } from './pages/MentorDashboard';
 import { ClassManagement } from './pages/ClassManagement';
 import { StudentDirectory } from './pages/StudentDirectory';
@@ -38,23 +39,27 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {children}
         </main>
       </div>
+      <Footer />
     </div>
   );
 };
 
 const NotFoundPage: React.FC = () => (
-  <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-    <div className="bg-white rounded-2xl border border-slate-200 p-8 max-w-md w-full text-center space-y-3 shadow-md">
-      <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
-      <h1 className="text-xl font-bold text-navy-950">Page Not Found</h1>
-      <p className="text-xs text-slate-500">The requested page does not exist or has been moved.</p>
-      <a
-        href="/"
-        className="inline-block mt-4 px-4 py-2 bg-navy-900 text-white rounded-xl text-xs font-semibold"
-      >
-        Return to Home
-      </a>
+  <div className="min-h-screen bg-slate-50 flex flex-col justify-between">
+    <div className="flex-1 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border border-slate-200 p-8 max-w-md w-full text-center space-y-3 shadow-md">
+        <AlertCircle className="w-10 h-10 text-rose-500 mx-auto" />
+        <h1 className="text-xl font-bold text-navy-950">Page Not Found</h1>
+        <p className="text-xs text-slate-500">The requested page does not exist or has been moved.</p>
+        <a
+          href="/"
+          className="inline-block mt-4 px-4 py-2 bg-navy-900 text-white rounded-xl text-xs font-semibold"
+        >
+          Return to Home
+        </a>
+      </div>
     </div>
+    <Footer />
   </div>
 );
 

@@ -103,6 +103,11 @@ export const StudentProfileEdit: React.FC = () => {
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div>
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
+          <span className="text-xs font-semibold text-slate-800">MentorPulse <span className="text-teal-700">by THARUN N E</span></span>
+          <span className="text-xs text-slate-400">&bull;</span>
+          <span className="text-xs text-teal-800 font-medium">SFS @ Kumaraguru College of Technology</span>
+        </div>
         <h1 className="text-2xl font-bold text-navy-950">Student Profile & Mentoring Portfolio</h1>
         <p className="text-xs text-slate-500 mt-1">
           Keep your academic record, competencies, and career objectives up-to-date for your mentor.

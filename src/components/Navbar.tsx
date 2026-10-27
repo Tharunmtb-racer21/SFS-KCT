@@ -127,13 +127,14 @@ export const Navbar: React.FC = () => {
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
-                <div className="font-bold text-lg tracking-tight flex items-center gap-1.5">
-                  MentorPulse
+                <div className="font-bold text-base sm:text-lg tracking-tight flex items-center gap-1.5 flex-wrap">
+                  <span>MentorPulse</span>
+                  <span className="text-teal-400 font-medium text-xs sm:text-sm">by THARUN N E</span>
                   <span className="text-[10px] uppercase font-bold tracking-widest px-1.5 py-0.5 rounded bg-teal-500/20 text-teal-300 border border-teal-500/30">
                     Hub
                   </span>
                 </div>
-                <p className="text-[11px] text-slate-400 font-normal">Student Progress & Mentoring</p>
+                <p className="text-[11px] text-teal-200/90 font-medium">SFS @ Kumaraguru College of Technology</p>
               </div>
             </div>
 
