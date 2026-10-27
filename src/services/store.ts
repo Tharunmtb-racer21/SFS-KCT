@@ -264,6 +264,21 @@ export class AppDataStore {
     this.updateClass(classId, { invite_active: active });
   }
 
+  public deleteClass(classId: string): void {
+    this.classes = this.classes.filter((c) => c.id !== classId);
+    this.enrollments = this.enrollments.filter((e) => e.class_id !== classId);
+    this.dailyPosts = this.dailyPosts.filter((p) => p.class_id !== classId);
+    this.weeklyReports = this.weeklyReports.filter((r) => r.class_id !== classId);
+    saveToStorage(STORAGE_KEYS.CLASSES, this.classes);
+    saveToStorage(STORAGE_KEYS.ENROLLMENTS, this.enrollments);
+    saveToStorage(STORAGE_KEYS.DAILY_POSTS, this.dailyPosts);
+    saveToStorage(STORAGE_KEYS.WEEKLY_REPORTS, this.weeklyReports);
+    if (this.currentClassId === classId) {
+      this.currentClassId = this.classes[0]?.id || null;
+      saveToStorage(STORAGE_KEYS.CURRENT_CLASS_ID, this.currentClassId);
+    }
+  }
+
   // --- Enrollments ---
   public getEnrollmentsForClass(classId: string): (ClassEnrollment & { student: Profile })[] {
     return this.enrollments

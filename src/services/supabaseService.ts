@@ -469,6 +469,12 @@ export class SupabaseService {
     await this.updateClass(classId, { invite_active: active });
   }
 
+  public async deleteClass(classId: string): Promise<void> {
+    const client = this.ensureClient();
+    const { error } = await client.from('classes').delete().eq('id', classId);
+    if (error) throw new Error(error.message);
+  }
+
   // --- Enrollments ---
   public async getEnrollmentsForClass(classId: string): Promise<(ClassEnrollment & { student: Profile })[]> {
     const client = this.ensureClient();

@@ -25,7 +25,7 @@ export const AuthPage: React.FC = () => {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
   // Sign In Form State
-  const [signInRole, setSignInRole] = useState<'student' | 'mentor'>('student');
+  const [signInRole, setSignInRole] = useState<'mentor' | 'student'>('mentor');
   const [studentIdentifier, setStudentIdentifier] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -308,22 +308,8 @@ export const AuthPage: React.FC = () => {
 
             {mode === 'signin' ? (
               <form onSubmit={handleSignIn} className="space-y-4">
-                {/* Role Switcher */}
+                {/* Role Switcher - Faculty Mentor placed first as requested */}
                 <div className="flex items-center bg-slate-100 p-1 rounded-xl mb-3">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSignInRole('student');
-                      setErrorMsg('');
-                    }}
-                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
-                      signInRole === 'student'
-                        ? 'bg-white text-navy-950 shadow-xs'
-                        : 'text-slate-500 hover:text-slate-800'
-                    }`}
-                  >
-                    Student Login (Fast)
-                  </button>
                   <button
                     type="button"
                     onClick={() => {
@@ -337,6 +323,20 @@ export const AuthPage: React.FC = () => {
                     }`}
                   >
                     Faculty Mentor Sign In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSignInRole('student');
+                      setErrorMsg('');
+                    }}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                      signInRole === 'student'
+                        ? 'bg-white text-navy-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Student Login (Fast)
                   </button>
                 </div>
 
@@ -365,6 +365,10 @@ export const AuthPage: React.FC = () => {
                         <strong>No Password Needed:</strong> Instant academic login using your official college roll number or registered email.
                       </span>
                     </div>
+
+                    <p className="text-[11px] text-slate-500 text-center">
+                      New student joining a cohort? Use the unique classroom invite link provided by your faculty mentor to register.
+                    </p>
 
                     <button
                       type="submit"

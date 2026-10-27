@@ -13,15 +13,18 @@ import {
   Layers, 
   Calendar, 
   Users, 
-  Loader2
+  Loader2,
+  Trash2
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { getInviteUrl } from '../utils/url';
+import { ClassGroup } from '../types';
 
 export const ClassManagement: React.FC = () => {
   const { currentUser, classes, refreshData, setActiveClassId, activeMode } = useApp();
   const [searchParams] = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(searchParams.get('action') === 'new');
+  const [deleteModalClass, setDeleteModalClass] = useState<ClassGroup | null>(null);
   
   // New Class Form State
   const [name, setName] = useState('');
@@ -131,6 +134,23 @@ export const ClassManagement: React.FC = () => {
       await refreshData();
     } catch (err: any) {
       alert(`Toggle invite status failed: ${err.message}`);
+    }
+  };
+
+  const handleDeleteClass = async (classId: string) => {
+    setIsSubmitting(true);
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.deleteClass(classId);
+      } else {
+        appStore.deleteClass(classId);
+      }
+      await refreshData();
+      setDeleteModalClass(null);
+    } catch (err: any) {
+      alert(`Failed to delete classroom: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -279,6 +299,14 @@ export const ClassManagement: React.FC = () => {
                         title="Regenerate unguessable token (invalidates old link)"
                       >
                         <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => setDeleteModalClass(c)}
+                        className="p-1.5 rounded-lg border border-rose-200 text-rose-500 hover:text-rose-700 hover:bg-rose-50 transition-colors"
+                        title="Delete Classroom"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   </div>
@@ -436,6 +464,61 @@ export const ClassManagement: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Classroom Confirmation Modal */}
+      {deleteModalClass && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95">
+            <div className="p-5 border-b border-rose-100 bg-rose-50/50 flex items-center gap-3">
+              <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-rose-950">Delete Classroom</h2>
+                <p className="text-xs text-rose-600 font-medium">This action cannot be undone</p>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Are you sure you want to permanently delete <strong className="text-navy-950 font-bold">{deleteModalClass.name}</strong> ({deleteModalClass.department})?
+              </p>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-[11px] leading-relaxed">
+                <strong>Warning:</strong> Deleting this classroom will remove all student enrollments, daily progress posts, and weekly submissions associated with this cohort.
+              </div>
+            </div>
+
+            <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => setDeleteModalClass(null)}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 text-xs font-medium hover:bg-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={() => handleDeleteClass(deleteModalClass.id)}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5 shadow-xs"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Permanently Delete
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}
