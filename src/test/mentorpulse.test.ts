@@ -553,6 +553,205 @@ describe('MentorPulse - Core Domain & Security Tests', () => {
       });
     });
   });
+
+  describe('8. Faculty Visual Analytics, Metric Aggregations & Attention Queue Verification', () => {
+    // Dynamic import to test pure functions
+    it('accurately evaluates student profile completion according to university criteria', async () => {
+      const { evaluateStudentProfile } = await import('../utils/analyticsUtils');
+
+      // Complete profile
+      const completeProfile: any = {
+        id: 'stud-1',
+        full_name: 'Kavitha S',
+        email: 'kavitha.22ec@kct.ac.in',
+        student_reg_no: '717722EC104',
+        department: 'Electronics and Communication Engineering',
+        skills: ['Embedded Systems', 'RTOS'],
+        career_goals: 'Core electronics firmware architect',
+        bio: 'Passionate engineer',
+        role: 'student',
+      };
+      const res1 = evaluateStudentProfile(completeProfile);
+      expect(res1.isComplete).toBe(true);
+      expect(res1.percent).toBe(100);
+      expect(res1.hasName).toBe(true);
+      expect(res1.hasRegNo).toBe(true);
+      expect(res1.hasDept).toBe(true);
+      expect(res1.hasSkills).toBe(true);
+      expect(res1.hasBioOrGoals).toBe(true);
+
+      // Incomplete profile: missing registration number and skills
+      const incompleteProfile: any = {
+        id: 'stud-2',
+        full_name: 'Fresh Student',
+        email: 'fresh@kct.ac.in',
+        student_reg_no: 'Pending',
+        department: 'Mechanical Engineering',
+        skills: [],
+        role: 'student',
+      };
+      const res2 = evaluateStudentProfile(incompleteProfile);
+      expect(res2.isComplete).toBe(false);
+      expect(res2.percent).toBeLessThan(100);
+      expect(res2.hasRegNo).toBe(false);
+      expect(res2.hasSkills).toBe(false);
+    });
+
+    it('reconciles 11 distinct metrics with zero fabrication and mutually exclusive categories', async () => {
+      const { computeClassAnalytics } = await import('../utils/analyticsUtils');
+
+      const mockEnrollments: any[] = [
+        {
+          id: 'enr-1',
+          class_id: 'class-test',
+          student_id: 'stud-1',
+          status: 'approved',
+          student: {
+            id: 'stud-1',
+            full_name: 'Kavitha S',
+            email: 'kavitha@kct.ac.in',
+            student_reg_no: '717722EC104',
+            department: 'ECE',
+            skills: ['Verilog'],
+            bio: 'Hardware engineer',
+          },
+        },
+        {
+          id: 'enr-2',
+          class_id: 'class-test',
+          student_id: 'stud-2',
+          status: 'approved',
+          student: {
+            id: 'stud-2',
+            full_name: 'Rahul R',
+            email: 'rahul@kct.ac.in',
+            student_reg_no: '717722EC108',
+            department: 'ECE',
+            skills: ['Python'],
+            bio: 'Signal processing',
+          },
+        },
+        {
+          id: 'enr-3',
+          class_id: 'class-test',
+          student_id: 'stud-3',
+          status: 'approved',
+          student: {
+            id: 'stud-3',
+            full_name: 'Incomplete Stud',
+            email: 'inc@kct.ac.in',
+            student_reg_no: 'Pending',
+            department: 'ECE',
+            skills: [],
+          },
+        },
+        {
+          id: 'enr-4',
+          class_id: 'class-test',
+          student_id: 'stud-4',
+          status: 'pending',
+          student: {
+            id: 'stud-4',
+            full_name: 'Awaiting Stud',
+            email: 'await@kct.ac.in',
+            student_reg_no: 'Pending',
+            department: 'ECE',
+            skills: [],
+          },
+        },
+      ];
+
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      // Multiple posts by stud-1 on same day and another on today
+      const mockPosts: any[] = [
+        {
+          id: 'post-1',
+          class_id: 'class-test',
+          student_id: 'stud-1',
+          title: 'Post 1',
+          activity_date: todayStr,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'post-2',
+          class_id: 'class-test',
+          student_id: 'stud-1',
+          title: 'Post 2 (Same student)',
+          activity_date: todayStr,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'post-3',
+          class_id: 'class-test',
+          student_id: 'stud-2',
+          title: 'Post 3 (Student 2)',
+          activity_date: todayStr,
+          created_at: new Date().toISOString(),
+        },
+      ];
+
+      const mockReports: any[] = [
+        {
+          id: 'rep-1',
+          class_id: 'class-test',
+          student_id: 'stud-1',
+          status: 'submitted',
+          review_status: 'approved',
+          mentor_reviewed: true,
+          created_at: new Date().toISOString(),
+        },
+        {
+          id: 'rep-2',
+          class_id: 'class-test',
+          student_id: 'stud-2',
+          status: 'submitted',
+          review_status: 'pending',
+          mentor_reviewed: false,
+          created_at: new Date().toISOString(),
+        },
+      ];
+
+      const analytics = computeClassAnalytics(mockEnrollments, mockPosts, mockReports, 'all', 3);
+
+      // Total approved enrolled = 3 (stud-1, stud-2, stud-3), pending = 1 (stud-4)
+      expect(analytics.totalEnrolled).toBe(3);
+      expect(analytics.pendingApprovals).toBe(1);
+
+      // Profile completion: 2 complete, 1 incomplete (sum = 3 total enrolled)
+      expect(analytics.completeProfiles).toBe(2);
+      expect(analytics.incompleteProfiles).toBe(1);
+      const completionRate = Math.round((analytics.completeProfiles / analytics.totalEnrolled) * 100);
+      expect(completionRate).toBe(67);
+
+      // Daily updates received = 3, but unique students = 2 (stud-1, stud-2)
+      expect(analytics.postsInPeriod).toBe(3);
+      expect(analytics.uniquePostersInPeriod).toBe(2);
+      expect(analytics.activeInPeriod).toBe(2);
+      expect(analytics.inactiveInPeriod).toBe(1); // stud-3 has 0 posts
+
+      // Daily timeline deduplication: today has 3 posts but only 2 unique students
+      const todayBar = analytics.dailyTimeline.find((d) => d.date === todayStr);
+      expect(todayBar).toBeDefined();
+      expect(todayBar?.postCount).toBe(3);
+      expect(todayBar?.uniqueStudents).toBe(2);
+
+      // Weekly reports: 1 approved, 1 awaiting review, 0 revision, 2 submitted total
+      expect(analytics.reportsApproved).toBe(1);
+      expect(analytics.reportsAwaitingReview).toBe(1);
+      expect(analytics.reportsNeedsRevision).toBe(0);
+      expect(analytics.reportsSubmitted).toBe(2);
+
+      // Overdue check: stud-3 has never posted and has 0 posts -> overdue!
+      expect(analytics.overdueStudents).toBe(1);
+
+      // Attention queue check: stud-3 must appear with transparent reasons
+      const stud3Attention = analytics.attentionItems.find((item) => item.student.id === 'stud-3');
+      expect(stud3Attention).toBeDefined();
+      expect(stud3Attention?.reasons).toContain('Incomplete profile details');
+      expect(stud3Attention?.reasons).toContain('Missing weekly milestone report');
+    });
+  });
 });
 
 

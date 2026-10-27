@@ -1,14 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
 import { ClassEnrollment, DailyPost, WeeklyReport, Profile } from '../types';
 import { 
   Users, 
-  Clock, 
-  Rss, 
-  CalendarCheck, 
-  AlertCircle, 
   Share2, 
   Copy, 
   Check, 
@@ -16,10 +12,13 @@ import {
   ChevronRight, 
   Layers, 
   GraduationCap,
-  Loader2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getInviteUrl } from '../utils/url';
+import { FacultyAnalytics } from '../components/FacultyAnalytics';
+import { computeClassAnalytics, TimeRangeOption } from '../utils/analyticsUtils';
 
 export const MentorDashboard: React.FC = () => {
   const { currentUser, activeClass, classes, setActiveClassId, activeMode } = useApp();
@@ -32,6 +31,9 @@ export const MentorDashboard: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [copiedLink, setCopiedLink] = useState(false);
+  const [timeRange, setTimeRange] = useState<TimeRangeOption>('all');
+  const [overdueDays, setOverdueDays] = useState<number>(3);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(new Date());
 
   const loadDashboardData = async () => {
     if (!activeClass) {
@@ -61,6 +63,7 @@ export const MentorDashboard: React.FC = () => {
         setClassPosts(demoPosts);
         setClassWeeklyReports(demoReports);
       }
+      setLastRefreshedAt(new Date());
     } catch (err: any) {
       console.error('Failed to load dashboard:', err);
       setErrorMsg(err.message || 'Failed to load dashboard metrics.');
@@ -72,6 +75,10 @@ export const MentorDashboard: React.FC = () => {
   useEffect(() => {
     loadDashboardData();
   }, [activeClass?.id, activeMode]);
+
+  const analytics = useMemo(() => {
+    return computeClassAnalytics(enrollments, classPosts, classWeeklyReports, timeRange, overdueDays);
+  }, [enrollments, classPosts, classWeeklyReports, timeRange, overdueDays]);
 
   if (!currentUser || currentUser.role !== 'mentor') {
     return (
@@ -101,13 +108,6 @@ export const MentorDashboard: React.FC = () => {
 
   const approvedStudents = enrollments.filter(e => e.status === 'approved');
   const pendingStudents = enrollments.filter(e => e.status === 'pending');
-
-  // Identify students needing attention (no posts in last 7 days or missing weekly report)
-  const studentsNeedingAttention = approvedStudents.filter(e => {
-    const studentPosts = classPosts.filter(p => p.student_id === e.student_id);
-    const hasWeeklyReport = classWeeklyReports.some(r => r.student_id === e.student_id && r.status === 'submitted');
-    return studentPosts.length === 0 || !hasWeeklyReport;
-  });
 
   const inviteUrl = getInviteUrl(activeClass.invite_code);
 
@@ -301,70 +301,19 @@ export const MentorDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-blue-50 text-blue-700">
-            <Users className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-slate-900">{approvedStudents.length}</div>
-            <div className="text-xs text-slate-500">Enrolled Students</div>
-          </div>
-        </div>
-
-        <div 
-          onClick={() => navigate('/mentor/students?tab=pending')}
-          className={`bg-white p-4 rounded-2xl border shadow-xs flex items-center gap-3 cursor-pointer transition-colors ${
-            pendingStudents.length > 0 ? 'border-amber-300 bg-amber-50/40 hover:bg-amber-50' : 'border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <div className="p-2.5 rounded-xl bg-amber-100 text-amber-800">
-            <Clock className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-slate-900 flex items-center gap-2">
-              {pendingStudents.length}
-              {pendingStudents.length > 0 && (
-                <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded">
-                  Review
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-slate-500">Pending Approvals</div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-teal-50 text-teal-700">
-            <Rss className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-slate-900">{classPosts.length}</div>
-            <div className="text-xs text-slate-500">Daily Updates Logged</div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-emerald-50 text-emerald-700">
-            <CalendarCheck className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-slate-900">{classWeeklyReports.length}</div>
-            <div className="text-xs text-slate-500">Weekly Reports Filed</div>
-          </div>
-        </div>
-
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-3">
-          <div className={`p-2.5 rounded-xl ${studentsNeedingAttention.length > 0 ? 'bg-rose-50 text-rose-700' : 'bg-slate-100 text-slate-500'}`}>
-            <AlertCircle className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="text-xl font-bold text-slate-900">{studentsNeedingAttention.length}</div>
-            <div className="text-xs text-slate-500">Needs Attention</div>
-          </div>
-        </div>
-      </div>
+      {/* Visual Analytics Hub with 11 Metric Cards, Donut Charts, Timeline Bar Chart, Class Benchmarking & Attention Queue */}
+      <FacultyAnalytics
+        analytics={analytics}
+        timeRange={timeRange}
+        onTimeRangeChange={setTimeRange}
+        overdueDays={overdueDays}
+        onOverdueDaysChange={setOverdueDays}
+        onRefresh={loadDashboardData}
+        lastRefreshedAt={lastRefreshedAt}
+        classes={classes}
+        activeClass={activeClass}
+        onSelectClass={setActiveClassId}
+      />
 
       {/* Two Column Layout: Students Attention Queue & Latest Feed Highlights */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-10-27T23:18:00+05:30",
+  "timestamp": "2026-10-28T01:31:00+05:30",
   "project_name": "MentorPulse — Student Progress Hub",
-  "current_phase": "WORKFLOWS_REFINED_AND_VERIFIED",
-  "version": "1.4.0",
+  "current_phase": "FACULTY_ANALYTICS_AND_1500_SCALE_VERIFIED",
+  "version": "1.5.0",
   "live_backend": {
     "connected": true,
     "project_ref": "myuljbnmmcpyhbhjxffo",
@@ -26,12 +26,45 @@
       "allowed_mime_types": ["image/jpeg", "image/png", "image/webp", "application/pdf"]
     }
   },
+  "faculty_analytics": {
+    "metrics_cards_count": 11,
+    "metrics": [
+      "total_enrolled",
+      "profiles_complete",
+      "profiles_incomplete",
+      "active_in_period",
+      "daily_updates_in_period",
+      "overdue_progress",
+      "reports_filed",
+      "awaiting_review",
+      "reports_approved",
+      "needs_revision",
+      "zero_activity_students"
+    ],
+    "visual_charts": [
+      "profile_completion_donut",
+      "student_activity_donut",
+      "weekly_reports_status_donut",
+      "daily_progress_timeline_barchart",
+      "class_comparison_benchmarking_table"
+    ],
+    "attention_queue": {
+      "transparent_criteria": [
+        "Incomplete student profile details",
+        "Never posted daily progress",
+        "No daily progress logged in >X days",
+        "Missing weekly milestone report",
+        "Weekly report requires revision"
+      ],
+      "one_click_profile_navigation": true
+    }
+  },
   "workflows": {
     "daily_progress_update": {
       "fields": ["today_work", "skills_learned", "obstacles_faced", "next_steps", "category", "activity_date", "location_context"],
       "reactions": ["🔥 Inspiring", "👏 Kudos", "💡 Insight"],
       "comments": "Persistent classmate & mentor commenting thread with full authorization and deletion support",
-      "authorization": "Verified class membership and RLS protection before publishing",
+      "draft_autosave": "sessionStorage auto-save preserves entered text on accidental refresh",
       "attachment_limit": "2 MB maximum • JPG, PNG, WebP, PDF only",
       "verified": true
     },
@@ -57,7 +90,7 @@
   },
   "checks_and_results": {
     "typecheck": {
-      "command": "npx tsc --noEmit",
+      "command": "npx tsc -b",
       "result": "PASS",
       "exit_code": 0
     },
@@ -70,7 +103,7 @@
     "automated_unit_and_integration_tests": {
       "command": "npx vitest run",
       "result": "PASS",
-      "tests_passed": 27,
+      "tests_passed": 29,
       "tests_failed": 0
     }
   },
@@ -90,5 +123,5 @@
     ],
     "direct_navigation": true
   },
-  "single_next_action": "Run migration 004_fix_student_enrollments_rls.sql in your Supabase SQL Editor and toggle off Vercel Authentication under Project Settings -> Deployment Protection."
+  "single_next_action": "Execute migration 005_storage_and_post_policies.sql in your Supabase SQL Editor if you have not already run it."
 }
