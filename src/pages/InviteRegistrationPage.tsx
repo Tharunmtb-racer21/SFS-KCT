@@ -19,7 +19,7 @@ import { Footer } from '../components/Footer';
 
 export const InviteRegistrationPage: React.FC = () => {
   const { inviteCode } = useParams<{ inviteCode: string }>();
-  const { currentUser, refreshData, setActiveClassId, activeMode } = useApp();
+  const { currentUser, refreshData, setActiveClassId, activeMode, setSessionUser } = useApp();
   const navigate = useNavigate();
 
   const [targetClass, setTargetClass] = useState<ClassGroup | null>(null);
@@ -128,15 +128,15 @@ export const InviteRegistrationPage: React.FC = () => {
 
     try {
       if (activeMode === 'production') {
-        const enrollment = await supabaseService.requestEnrollment(targetClass.id, currentUser.id);
+        await supabaseService.requestEnrollment(targetClass.id, currentUser.id);
         await refreshData();
         setActiveClassId(targetClass.id);
-        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
+        navigate('/student/feed?compose=true');
       } else {
-        const enrollment = appStore.requestEnrollment(targetClass.id, currentUser.id);
+        appStore.requestEnrollment(targetClass.id, currentUser.id);
         refreshData();
         setActiveClassId(targetClass.id);
-        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
+        navigate('/student/feed?compose=true');
       }
     } catch (err: any) {
       setFormError(err.message || 'Enrollment request failed.');
@@ -168,24 +168,28 @@ export const InviteRegistrationPage: React.FC = () => {
           phone: phone.trim() || undefined,
           skills: skillsStr.split(',').map(s => s.trim()).filter(Boolean),
           career_goals: careerGoals.trim() || undefined,
+          avatar_url: avatarPreview || undefined, // Immediate Base64 photo storage
         });
 
-        // Store session so student stays logged in across pages
-        localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(newStudent));
-
-        // Upload profile photo if selected
+        // Also try storage upload in background to generate signed URL
         if (avatarFile) {
           try {
             await supabaseService.uploadAvatar(newStudent.id, avatarFile);
           } catch (photoErr: any) {
-            console.warn('Profile photo upload warning:', photoErr);
+            console.warn('Profile photo storage notice:', photoErr);
           }
         }
 
-        const enrollment = await supabaseService.requestEnrollment(targetClass.id, newStudent.id);
-        await refreshData();
+        // Request enrollment into the target class
+        await supabaseService.requestEnrollment(targetClass.id, newStudent.id);
+
+        // Store active session in AppContext & localStorage
+        setSessionUser(newStudent);
         setActiveClassId(targetClass.id);
-        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
+        await refreshData();
+
+        // Direct navigation straight to daily progress submission feed with composer open
+        navigate('/student/feed?compose=true');
       } else {
         const newStudent = appStore.registerUser({
           id: 'student-' + Date.now(),
@@ -202,10 +206,11 @@ export const InviteRegistrationPage: React.FC = () => {
           avatar_url: avatarPreview || undefined,
         });
 
-        const enrollment = appStore.requestEnrollment(targetClass.id, newStudent.id);
-        refreshData();
+        appStore.requestEnrollment(targetClass.id, newStudent.id);
+        setSessionUser(newStudent);
         setActiveClassId(targetClass.id);
-        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
+        refreshData();
+        navigate('/student/feed?compose=true');
       }
     } catch (err: any) {
       setFormError(err.message || 'Registration failed.');

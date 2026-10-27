@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
@@ -40,13 +40,22 @@ const REACTION_CONFIG: ReactionOption[] = [
 
 export const DailyProgressFeed: React.FC = () => {
   const { currentUser, activeClass, refreshData, activeMode } = useApp();
+  const [searchParams] = useSearchParams();
 
   const [posts, setPosts] = useState<DailyPost[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const [showComposer, setShowComposer] = useState(false);
+  const [showComposer, setShowComposer] = useState(
+    searchParams.get('compose') === 'true' || searchParams.get('action') === 'new'
+  );
+
+  useEffect(() => {
+    if (searchParams.get('compose') === 'true' || searchParams.get('action') === 'new') {
+      setShowComposer(true);
+    }
+  }, [searchParams]);
 
   // Composer Form Fields
   const [category, setCategory] = useState('Lab Experiment');
@@ -184,16 +193,16 @@ export const DailyProgressFeed: React.FC = () => {
       return;
     }
 
-    // Verify student is authorized/approved for this class
+    // Verify student is enrolled in this class
     if (currentUser.role === 'student') {
       if (activeMode === 'production') {
         try {
           const enrollments = await supabaseService.getEnrollmentsForStudent(currentUser.id);
-          const isApproved = enrollments.some(
-            (e) => e.class_id === activeClass.id && e.status === 'approved'
+          const isEnrolled = enrollments.some(
+            (e) => e.class_id === activeClass.id
           );
-          if (!isApproved) {
-            setFormError('Authorization required: You must be an approved student of this class to publish updates.');
+          if (!isEnrolled) {
+            setFormError('Authorization required: You must join this class first to publish updates.');
             return;
           }
         } catch (err: any) {

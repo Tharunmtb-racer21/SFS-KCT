@@ -26,6 +26,7 @@ interface AppContextType {
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   resetDemoData: () => void;
+  setSessionUser: (profile: Profile) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -46,6 +47,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [currentUser, setCurrentUser] = useState<Profile | null>(() => {
     if (initialMode === 'demo') {
       return appStore.getCurrentUser();
+    }
+    const saved = localStorage.getItem('mentorpulse_auth_profile');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return null;
+      }
     }
     return null;
   });
@@ -289,6 +298,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     refreshData();
   };
 
+  const setSessionUser = (profile: Profile) => {
+    setCurrentUser(profile);
+    localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(profile));
+  };
+
   const unreadNotificationCount = notifications.filter(n => !n.read).length;
 
   return (
@@ -313,6 +327,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         markNotificationRead,
         markAllNotificationsRead,
         resetDemoData,
+        setSessionUser,
       }}
     >
       {children}
