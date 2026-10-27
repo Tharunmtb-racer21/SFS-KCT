@@ -24,6 +24,7 @@ const STORAGE_KEYS = {
   DAILY_POSTS: 'mentorpulse_daily_posts_v1',
   WEEKLY_REPORTS: 'mentorpulse_weekly_reports_v1',
   NOTIFICATIONS: 'mentorpulse_notifications_v1',
+  POST_COMMENTS: 'mentorpulse_post_comments_v1',
   CURRENT_USER_ID: 'mentorpulse_current_user_id_v1',
   CURRENT_CLASS_ID: 'mentorpulse_current_class_id_v1',
 };
@@ -56,6 +57,7 @@ export class AppDataStore {
   private dailyPosts: DailyPost[];
   private weeklyReports: WeeklyReport[];
   private notifications: NotificationItem[];
+  private postComments: any[];
   private currentUserId: string;
   private currentClassId: string | null;
 
@@ -66,6 +68,7 @@ export class AppDataStore {
     this.dailyPosts = loadFromStorage(STORAGE_KEYS.DAILY_POSTS, INITIAL_DAILY_POSTS);
     this.weeklyReports = loadFromStorage(STORAGE_KEYS.WEEKLY_REPORTS, INITIAL_WEEKLY_REPORTS);
     this.notifications = loadFromStorage(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
+    this.postComments = loadFromStorage(STORAGE_KEYS.POST_COMMENTS, []);
     this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER_ID, 'mentor-1');
     this.currentClassId = loadFromStorage(STORAGE_KEYS.CURRENT_CLASS_ID, 'class-ece-2024');
   }
@@ -78,6 +81,7 @@ export class AppDataStore {
     this.dailyPosts = [...INITIAL_DAILY_POSTS];
     this.weeklyReports = [...INITIAL_WEEKLY_REPORTS];
     this.notifications = [...INITIAL_NOTIFICATIONS];
+    this.postComments = [];
     this.currentUserId = 'mentor-1';
     this.currentClassId = 'class-ece-2024';
 
@@ -87,6 +91,7 @@ export class AppDataStore {
     saveToStorage(STORAGE_KEYS.DAILY_POSTS, this.dailyPosts);
     saveToStorage(STORAGE_KEYS.WEEKLY_REPORTS, this.weeklyReports);
     saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+    saveToStorage(STORAGE_KEYS.POST_COMMENTS, this.postComments);
     saveToStorage(STORAGE_KEYS.CURRENT_USER_ID, this.currentUserId);
     saveToStorage(STORAGE_KEYS.CURRENT_CLASS_ID, this.currentClassId);
   }
@@ -375,6 +380,13 @@ export class AppDataStore {
       .map((p) => ({
         ...p,
         student: this.profiles.find((s) => s.id === p.student_id),
+        comments: this.postComments
+          .filter((c) => c.post_id === p.id)
+          .map((c) => ({
+            ...c,
+            user: this.profiles.find((u) => u.id === c.user_id),
+          }))
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
       }))
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
@@ -385,11 +397,18 @@ export class AppDataStore {
       .map((p) => ({
         ...p,
         student: this.profiles.find((s) => s.id === p.student_id),
+        comments: this.postComments
+          .filter((c) => c.post_id === p.id)
+          .map((c) => ({
+            ...c,
+            user: this.profiles.find((u) => u.id === c.user_id),
+          }))
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
       }))
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   }
 
-  public createDailyPost(post: Omit<DailyPost, 'id' | 'created_at' | 'updated_at' | 'reactions' | 'feedback'>): DailyPost {
+  public createDailyPost(post: Omit<DailyPost, 'id' | 'created_at' | 'updated_at' | 'reactions' | 'feedback' | 'comments'>): DailyPost {
     const newPost: DailyPost = {
       ...post,
       id: 'post-' + Date.now(),
@@ -397,6 +416,7 @@ export class AppDataStore {
       updated_at: new Date().toISOString(),
       reactions: [],
       feedback: [],
+      comments: [],
     };
     this.dailyPosts.unshift(newPost);
     saveToStorage(STORAGE_KEYS.DAILY_POSTS, this.dailyPosts);
@@ -408,7 +428,9 @@ export class AppDataStore {
     if (!post) throw new Error('Post not found');
     if (post.student_id !== userId) throw new Error('Unauthorized to delete this post');
     this.dailyPosts = this.dailyPosts.filter(p => p.id !== postId);
+    this.postComments = this.postComments.filter(c => c.post_id !== postId);
     saveToStorage(STORAGE_KEYS.DAILY_POSTS, this.dailyPosts);
+    saveToStorage(STORAGE_KEYS.POST_COMMENTS, this.postComments);
   }
 
   public reactToPost(postId: string, userId: string, reactionType: ReactionType): DailyPost {
@@ -493,6 +515,51 @@ export class AppDataStore {
     return this.dailyPosts[postIndex];
   }
 
+  public addPostComment(postId: string, userId: string, content: string) {
+    const post = this.dailyPosts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    const user = this.profiles.find((u) => u.id === userId);
+    const newComment = {
+      id: 'comm-' + Date.now(),
+      post_id: postId,
+      user_id: userId,
+      content,
+      created_at: new Date().toISOString(),
+      user,
+    };
+
+    this.postComments.push(newComment);
+    saveToStorage(STORAGE_KEYS.POST_COMMENTS, this.postComments);
+
+    // Notify post author if comment is from another user
+    if (post.student_id !== userId) {
+      this.notifications.push({
+        id: 'notif-' + Date.now(),
+        user_id: post.student_id,
+        title: 'New Comment on Progress Post',
+        message: `${user?.full_name || 'A classmate'} commented on "${post.title.substring(0, 30)}..."`,
+        link: `/student/feed`,
+        read: false,
+        created_at: new Date().toISOString(),
+      });
+      saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+    }
+
+    return newComment;
+  }
+
+  public deletePostComment(commentId: string, userId: string): void {
+    const comment = this.postComments.find((c) => c.id === commentId);
+    if (!comment) throw new Error('Comment not found');
+    const user = this.profiles.find((u) => u.id === userId);
+    if (comment.user_id !== userId && user?.role !== 'mentor') {
+      throw new Error('Unauthorized to delete comment');
+    }
+    this.postComments = this.postComments.filter((c) => c.id !== commentId);
+    saveToStorage(STORAGE_KEYS.POST_COMMENTS, this.postComments);
+  }
+
   // --- Weekly Reports ---
   public getWeeklyReportsForClass(classId: string): WeeklyReport[] {
     return this.weeklyReports
@@ -515,12 +582,15 @@ export class AppDataStore {
   }
 
   public saveWeeklyReport(report: Omit<WeeklyReport, 'id' | 'created_at' | 'updated_at' | 'feedback' | 'mentor_reviewed'> & { id?: string }): WeeklyReport {
+    const reviewStatus = report.review_status || (report.status === 'submitted' ? 'pending' : undefined);
+
     if (report.id) {
       const idx = this.weeklyReports.findIndex(r => r.id === report.id);
       if (idx !== -1) {
         this.weeklyReports[idx] = {
           ...this.weeklyReports[idx],
           ...report,
+          review_status: reviewStatus || this.weeklyReports[idx].review_status,
           updated_at: new Date().toISOString(),
         };
         saveToStorage(STORAGE_KEYS.WEEKLY_REPORTS, this.weeklyReports);
@@ -532,6 +602,7 @@ export class AppDataStore {
       ...report,
       id: 'wrep-' + Date.now(),
       mentor_reviewed: false,
+      review_status: reviewStatus,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       feedback: [],
@@ -560,7 +631,12 @@ export class AppDataStore {
     return newReport;
   }
 
-  public addWeeklyReportFeedback(reportId: string, mentorId: string, content: string): WeeklyReport {
+  public addWeeklyReportFeedback(
+    reportId: string, 
+    mentorId: string, 
+    content: string, 
+    statusDecision?: 'approved' | 'needs_revision'
+  ): WeeklyReport {
     const idx = this.weeklyReports.findIndex((r) => r.id === reportId);
     if (idx === -1) throw new Error('Weekly report not found');
 
@@ -573,6 +649,7 @@ export class AppDataStore {
       report_id: reportId,
       mentor_id: mentorId,
       content,
+      status_decision: statusDecision,
       created_at: new Date().toISOString(),
       mentor,
     });
@@ -580,6 +657,7 @@ export class AppDataStore {
     this.weeklyReports[idx] = {
       ...report,
       mentor_reviewed: true,
+      review_status: statusDecision || report.review_status || 'approved',
       feedback: feedbackList,
       updated_at: new Date().toISOString(),
     };
@@ -590,7 +668,7 @@ export class AppDataStore {
       id: 'notif-' + Date.now(),
       user_id: report.student_id,
       title: 'Weekly Report Feedback',
-      message: `${mentor?.full_name || 'Your mentor'} reviewed your Week ${report.week_number} report.`,
+      message: `${mentor?.full_name || 'Your mentor'} reviewed your Week ${report.week_number} report (${statusDecision === 'approved' ? 'Approved' : 'Needs Revision'}).`,
       link: `/student/weekly-reports`,
       read: false,
       created_at: new Date().toISOString(),

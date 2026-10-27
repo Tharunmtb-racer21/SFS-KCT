@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-10-27T22:52:00+05:30",
+  "timestamp": "2026-10-27T23:18:00+05:30",
   "project_name": "MentorPulse — Student Progress Hub",
-  "current_phase": "AVATAR_AND_STORAGE_LIMITS_VERIFIED",
-  "version": "1.3.0",
+  "current_phase": "WORKFLOWS_REFINED_AND_VERIFIED",
+  "version": "1.4.0",
   "live_backend": {
     "connected": true,
     "project_ref": "myuljbnmmcpyhbhjxffo",
@@ -15,6 +15,7 @@
       "weekly_reports",
       "post_reactions",
       "post_feedback",
+      "post_comments",
       "weekly_report_feedback",
       "notifications"
     ],
@@ -25,35 +26,35 @@
       "allowed_mime_types": ["image/jpeg", "image/png", "image/webp", "application/pdf"]
     }
   },
-  "storage_and_photo_limits": {
-    "profile_photos": {
+  "workflows": {
+    "daily_progress_update": {
+      "fields": ["today_work", "skills_learned", "obstacles_faced", "next_steps", "category", "activity_date", "location_context"],
+      "reactions": ["🔥 Inspiring", "👏 Kudos", "💡 Insight"],
+      "comments": "Persistent classmate & mentor commenting thread with full authorization and deletion support",
+      "authorization": "Verified class membership and RLS protection before publishing",
+      "attachment_limit": "2 MB maximum • JPG, PNG, WebP, PDF only",
+      "verified": true
+    },
+    "weekly_formal_report": {
+      "fields": ["achievements", "activities_completed", "challenges_faced", "hours_spent", "next_week_goals"],
+      "draft_and_submit": "Drafts are private and editable by owner; submitted reports routed to mentor review queue",
+      "mentor_review_queue": "Dedicated mentor review queue with filter tabs: All Submitted, Pending Review, Approved, Needs Revision",
+      "mentor_evaluation": "Persistent feedback remarks with status decision toggle (Approved vs Needs Revision)",
+      "resubmission_policy": "Students with 'needs_revision' status have a 1-click Revise & Resubmit workflow",
+      "attachment_limit": "2 MB maximum • JPG, PNG, WebP, PDF proof sheets",
+      "isolation": "Classmates cannot view other students' weekly reports or mentor evaluations",
+      "verified": true
+    },
+    "student_profile_photo": {
       "max_bytes": 512000,
       "max_kb": 500,
       "dimension": "400x400 square center-cropped",
       "formats": ["image/jpeg", "image/png", "image/webp"],
-      "compression_engine": "HTML5 Canvas iterative WebP/JPEG compression in src/utils/imageUtils.ts",
-      "replacement_cleanup": "Previous avatar file safely deleted from storage upon replacement",
-      "verified": true
-    },
-    "documents_and_attachments": {
-      "max_bytes": 2097152,
-      "max_mb": 2,
-      "formats": ["image/jpeg", "image/png", "image/webp", "application/pdf"],
-      "executable_blocking": "Strictly rejects .exe, .bat, .cmd, .sh, .php, .js, .vbs, .msi",
-      "surfaces": ["Daily progress attachments", "Weekly report reflection proof", "Certificates"],
+      "compression_engine": "Iterative HTML5 canvas WebP/JPEG compression in src/utils/imageUtils.ts",
+      "cleanup": "Automatic removal of unreferenced previous avatar files",
       "verified": true
     }
   },
-  "implemented_features": [
-    "Reusable ProfilePhotoPicker component with instant 400x400 center-crop preview and compression status badge",
-    "Profile photo support integrated into Student Registration (/auth and /invite/:inviteCode) and Profile Editor",
-    "Avatar display across Student Directory, Student Profile, Mentor Dashboard, Post Feed, and Navbar",
-    "Safe photo replacement with automatic removal of unreferenced previous avatar files from storage",
-    "Strict 2 MB file limit and MIME validation on daily progress and weekly report attachments with visible UI labels",
-    "Microsoft Teams 1-click invitation share button on class cards and mentor dashboard",
-    "Full PostgreSQL RLS multi-class cohort isolation",
-    "Dual-mode architecture: Production mode connects to live Supabase, Demo mode runs in isolated local storage"
-  ],
   "checks_and_results": {
     "typecheck": {
       "command": "npx tsc --noEmit",
@@ -67,11 +68,11 @@
       "output_bundle": "dist/"
     },
     "automated_unit_and_integration_tests": {
-      "command": "npm run test",
+      "command": "npx vitest run",
       "result": "PASS",
-      "tests_passed": 21,
+      "tests_passed": 27,
       "tests_failed": 0
     }
   },
-  "single_next_action": "Test editing your student profile or creating a daily post at http://localhost:5173/ to view the optimized photo preview and 2MB document limits."
+  "single_next_action": "Run migration 003_daily_weekly_refinements.sql in your Supabase SQL Editor if you wish to enforce the new comment table and constraints directly in Postgres."
 }

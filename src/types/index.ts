@@ -51,7 +51,7 @@ export interface ClassEnrollment {
   class?: ClassGroup;
 }
 
-export type ReactionType = 'WOW' | 'Great' | 'Excellent' | 'Appreciate';
+export type ReactionType = '🔥' | '👏' | '💡' | 'WOW' | 'Great' | 'Excellent' | 'Appreciate';
 
 export interface PostReaction {
   id: string;
@@ -69,6 +69,15 @@ export interface PostFeedback {
   content: string;
   created_at: string;
   mentor?: Profile;
+}
+
+export interface PostComment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+  user?: Profile;
 }
 
 export interface DailyPost {
@@ -93,6 +102,7 @@ export interface DailyPost {
   student?: Profile;
   reactions?: PostReaction[];
   feedback?: PostFeedback[];
+  comments?: PostComment[];
 }
 
 export interface WeeklyReportFeedback {
@@ -100,6 +110,7 @@ export interface WeeklyReportFeedback {
   report_id: string;
   mentor_id: string;
   content: string;
+  status_decision?: 'approved' | 'needs_revision';
   created_at: string;
   mentor?: Profile;
 }
@@ -116,10 +127,12 @@ export interface WeeklyReport {
   skills_learned?: string;
   goals_achieved?: string;
   difficulties_faced?: string;
+  hours_spent?: number;
   next_week_goals: string;
   attachment_url?: string;
   attachment_name?: string;
   status: 'draft' | 'submitted';
+  review_status?: 'pending' | 'approved' | 'needs_revision';
   submitted_at: string;
   mentor_reviewed: boolean;
   created_at: string;

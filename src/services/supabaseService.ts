@@ -7,7 +7,8 @@ import {
   WeeklyReport, 
   NotificationItem, 
   EnrollmentStatus, 
-  ReactionType 
+  ReactionType,
+  PostComment 
 } from '../types';
 
 export class SupabaseService {
@@ -381,6 +382,26 @@ export class SupabaseService {
   // --- Daily Posts ---
   public async getDailyPostsForClass(classId: string): Promise<DailyPost[]> {
     const client = this.ensureClient();
+    try {
+      const { data, error } = await client
+        .from('daily_posts')
+        .select(`
+          *,
+          student:profiles(*),
+          reactions:post_reactions(*),
+          feedback:post_feedback(*, mentor:profiles(*)),
+          comments:post_comments(*, user:profiles(*))
+        `)
+        .eq('class_id', classId)
+        .order('created_at', { ascending: false });
+
+      if (!error && data) return data;
+      if (error && !error.message?.includes('post_comments')) throw new Error(error.message);
+    } catch (err: any) {
+      if (!err.message?.includes('post_comments')) throw err;
+    }
+
+    // Graceful fallback if post_comments table is pending execution in remote DB
     const { data, error } = await client
       .from('daily_posts')
       .select(`
@@ -393,11 +414,34 @@ export class SupabaseService {
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(error.message);
-    return data || [];
+    return (data || []).map((p: any) => ({ ...p, comments: [] }));
   }
 
   public async getDailyPostsForStudent(studentId: string, classId?: string): Promise<DailyPost[]> {
     const client = this.ensureClient();
+    try {
+      let query = client
+        .from('daily_posts')
+        .select(`
+          *,
+          student:profiles(*),
+          reactions:post_reactions(*),
+          feedback:post_feedback(*, mentor:profiles(*)),
+          comments:post_comments(*, user:profiles(*))
+        `)
+        .eq('student_id', studentId);
+
+      if (classId) {
+        query = query.eq('class_id', classId);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
+      if (!error && data) return data;
+      if (error && !error.message?.includes('post_comments')) throw new Error(error.message);
+    } catch (err: any) {
+      if (!err.message?.includes('post_comments')) throw err;
+    }
+
     let query = client
       .from('daily_posts')
       .select(`
@@ -414,7 +458,42 @@ export class SupabaseService {
 
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return data || [];
+    return (data || []).map((p: any) => ({ ...p, comments: [] }));
+  }
+
+  public async addPostComment(postId: string, userId: string, content: string): Promise<PostComment> {
+    const client = this.ensureClient();
+    const { data, error } = await client
+      .from('post_comments')
+      .insert({
+        post_id: postId,
+        user_id: userId,
+        content: content.trim(),
+      })
+      .select('*, user:profiles(*)')
+      .single();
+
+    if (error) throw new Error(`Comment failed: ${error.message}`);
+
+    // Notify post author if comment is from another user
+    const { data: post } = await client.from('daily_posts').select('student_id, title').eq('id', postId).single();
+    if (post && post.student_id !== userId) {
+      const commenter = await this.getProfile(userId);
+      await client.from('notifications').insert({
+        user_id: post.student_id,
+        title: 'New Comment on Progress Post',
+        message: `${commenter?.full_name || 'A classmate'} commented on "${post.title.substring(0, 30)}..."`,
+        link: '/student/feed',
+      });
+    }
+
+    return data;
+  }
+
+  public async deletePostComment(commentId: string, userId: string): Promise<void> {
+    const client = this.ensureClient();
+    const { error } = await client.from('post_comments').delete().eq('id', commentId);
+    if (error) throw new Error(error.message);
   }
 
   public async createDailyPost(postData: Omit<DailyPost, 'id' | 'created_at' | 'updated_at' | 'reactions' | 'feedback'>): Promise<DailyPost> {
@@ -545,7 +624,7 @@ export class SupabaseService {
 
   public async saveWeeklyReport(reportData: Omit<WeeklyReport, 'id' | 'created_at' | 'updated_at' | 'feedback' | 'mentor_reviewed'> & { id?: string }): Promise<WeeklyReport> {
     const client = this.ensureClient();
-    const payload = {
+    const payload: any = {
       class_id: reportData.class_id,
       student_id: reportData.student_id,
       week_number: reportData.week_number,
@@ -556,11 +635,20 @@ export class SupabaseService {
       skills_learned: reportData.skills_learned || null,
       goals_achieved: reportData.goals_achieved || null,
       difficulties_faced: reportData.difficulties_faced || null,
+      hours_spent: reportData.hours_spent !== undefined ? Number(reportData.hours_spent) : null,
       next_week_goals: reportData.next_week_goals,
       status: reportData.status,
       submitted_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    if (reportData.attachment_url) payload.attachment_url = reportData.attachment_url;
+    if (reportData.attachment_name) payload.attachment_name = reportData.attachment_name;
+    if (reportData.review_status) {
+      payload.review_status = reportData.review_status;
+    } else if (reportData.status === 'submitted') {
+      payload.review_status = 'pending';
+    }
 
     let resultData;
     if (reportData.id) {
@@ -599,16 +687,30 @@ export class SupabaseService {
     return resultData;
   }
 
-  public async addWeeklyReportFeedback(reportId: string, mentorId: string, content: string): Promise<void> {
+  public async addWeeklyReportFeedback(
+    reportId: string, 
+    mentorId: string, 
+    content: string, 
+    statusDecision?: 'approved' | 'needs_revision'
+  ): Promise<void> {
     const client = this.ensureClient();
-    const { error } = await client.from('weekly_report_feedback').insert({
+    const feedbackPayload: any = {
       report_id: reportId,
       mentor_id: mentorId,
       content,
-    });
+    };
+    if (statusDecision) {
+      feedbackPayload.status_decision = statusDecision;
+    }
+
+    const { error } = await client.from('weekly_report_feedback').insert(feedbackPayload);
     if (error) throw new Error(error.message);
 
-    await client.from('weekly_reports').update({ mentor_reviewed: true }).eq('id', reportId);
+    const reportUpdates: any = { mentor_reviewed: true };
+    if (statusDecision) {
+      reportUpdates.review_status = statusDecision;
+    }
+    await client.from('weekly_reports').update(reportUpdates).eq('id', reportId);
 
     // Notify student
     const { data: report } = await client.from('weekly_reports').select('student_id, week_number').eq('id', reportId).single();
@@ -617,7 +719,7 @@ export class SupabaseService {
       await client.from('notifications').insert({
         user_id: report.student_id,
         title: 'Weekly Report Feedback',
-        message: `${mentor?.full_name || 'Your mentor'} reviewed your Week ${report.week_number} progress report.`,
+        message: `${mentor?.full_name || 'Your mentor'} reviewed your Week ${report.week_number} progress report (${statusDecision === 'approved' ? 'Approved' : 'Needs Revision'}).`,
         link: '/student/weekly-reports',
       });
     }

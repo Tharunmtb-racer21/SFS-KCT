@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
@@ -16,11 +17,26 @@ import {
   UploadCloud,
   FileCheck,
   Loader2,
-  X
+  X,
+  MessageSquare,
+  CalendarCheck,
+  CheckCircle2,
+  ShieldAlert
 } from 'lucide-react';
 import { validateAttachmentFile } from '../utils/imageUtils';
 
-const REACTION_TYPES: ReactionType[] = ['WOW', 'Great', 'Excellent', 'Appreciate'];
+interface ReactionOption {
+  type: ReactionType;
+  emoji: string;
+  label: string;
+  aliases: string[];
+}
+
+const REACTION_CONFIG: ReactionOption[] = [
+  { type: '🔥', emoji: '🔥', label: 'Inspiring', aliases: ['🔥', 'WOW'] },
+  { type: '👏', emoji: '👏', label: 'Kudos', aliases: ['👏', 'Great', 'Appreciate'] },
+  { type: '💡', emoji: '💡', label: 'Insight', aliases: ['💡', 'Excellent'] },
+];
 
 export const DailyProgressFeed: React.FC = () => {
   const { currentUser, activeClass, refreshData, activeMode } = useApp();
@@ -28,6 +44,7 @@ export const DailyProgressFeed: React.FC = () => {
   const [posts, setPosts] = useState<DailyPost[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [showComposer, setShowComposer] = useState(false);
 
@@ -55,6 +72,11 @@ export const DailyProgressFeed: React.FC = () => {
 
   // Mentor Feedback input state
   const [feedbackInputs, setFeedbackInputs] = useState<{ [postId: string]: string }>({});
+
+  // Classmate / Peer Comments State
+  const [commentInputs, setCommentInputs] = useState<{ [postId: string]: string }>({});
+  const [openComments, setOpenComments] = useState<{ [postId: string]: boolean }>({});
+  const [submittingComment, setSubmittingComment] = useState<{ [postId: string]: boolean }>({});
 
   const loadPosts = async () => {
     if (!activeClass) {
@@ -162,6 +184,24 @@ export const DailyProgressFeed: React.FC = () => {
       return;
     }
 
+    // Verify student is authorized/approved for this class
+    if (currentUser.role === 'student') {
+      if (activeMode === 'production') {
+        try {
+          const enrollments = await supabaseService.getEnrollmentsForStudent(currentUser.id);
+          const isApproved = enrollments.some(
+            (e) => e.class_id === activeClass.id && e.status === 'approved'
+          );
+          if (!isApproved) {
+            setFormError('Authorization required: You must be an approved student of this class to publish updates.');
+            return;
+          }
+        } catch (err: any) {
+          console.warn('Membership check warning:', err);
+        }
+      }
+    }
+
     const skills = skillsInput
       .split(',')
       .map((s) => s.trim())
@@ -175,7 +215,7 @@ export const DailyProgressFeed: React.FC = () => {
         let uploadedUrl: string | undefined = undefined;
         if (selectedFileObj) {
           setUploadProgress(40);
-          const uploadRes = await supabaseService.uploadAttachment(currentUser.id, selectedFileObj);
+          const uploadRes = await supabaseService.uploadAttachment(currentUser.id, selectedFileObj, 'posts');
           uploadedUrl = uploadRes.url;
           setUploadProgress(100);
         }
@@ -231,6 +271,8 @@ export const DailyProgressFeed: React.FC = () => {
       setSelectedFileObj(null);
       setUploadProgress(null);
       setShowComposer(false);
+      setSuccessMessage('Progress update published successfully to the class stream.');
+      setTimeout(() => setSuccessMessage(null), 4000);
       await loadPosts();
     } catch (err: any) {
       setFormError(`Failed to publish: ${err.message}`);
@@ -278,9 +320,45 @@ export const DailyProgressFeed: React.FC = () => {
         appStore.addPostFeedback(postId, currentUser.id, content.trim());
       }
       setFeedbackInputs({ ...feedbackInputs, [postId]: '' });
+      setSuccessMessage('Mentor guidance shared with the student.');
+      setTimeout(() => setSuccessMessage(null), 3000);
       await loadPosts();
     } catch (err: any) {
       alert(`Feedback submission failed: ${err.message}`);
+    }
+  };
+
+  const handleSendComment = async (postId: string) => {
+    const content = commentInputs[postId];
+    if (!content || !content.trim()) return;
+
+    setSubmittingComment({ ...submittingComment, [postId]: true });
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.addPostComment(postId, currentUser.id, content.trim());
+      } else {
+        appStore.addPostComment(postId, currentUser.id, content.trim());
+      }
+      setCommentInputs({ ...commentInputs, [postId]: '' });
+      await loadPosts();
+    } catch (err: any) {
+      alert(`Comment submission failed: ${err.message}`);
+    } finally {
+      setSubmittingComment({ ...submittingComment, [postId]: false });
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!window.confirm('Are you sure you want to delete this comment?')) return;
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.deletePostComment(commentId, currentUser.id);
+      } else {
+        appStore.deletePostComment(commentId, currentUser.id);
+      }
+      await loadPosts();
+    } catch (err: any) {
+      alert(`Failed to delete comment: ${err.message}`);
     }
   };
 
@@ -309,6 +387,46 @@ export const DailyProgressFeed: React.FC = () => {
           </button>
         )}
       </div>
+
+      {/* Student Quick Checkpoints Banner */}
+      {isStudent && (
+        <div className="bg-gradient-to-r from-navy-900 to-navy-950 rounded-2xl p-4 sm:p-5 text-white shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="text-[11px] font-semibold text-teal-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              Student Academic Workstation
+            </div>
+            <h2 className="text-base font-bold mt-0.5">Stay Accountable & Showcase Progress</h2>
+            <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
+              Log your daily check-in with peers or submit your weekly formal milestone report for mentor grading.
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
+            <button
+              onClick={() => setShowComposer(true)}
+              className="px-3.5 py-2 bg-teal-500 hover:bg-teal-400 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Post Today's Progress
+            </button>
+            <Link
+              to="/student/weekly-reports"
+              className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 transition-colors border border-white/15"
+            >
+              <CalendarCheck className="w-3.5 h-3.5 text-teal-400" />
+              Submit Weekly Report
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Success Notification Banner */}
+      {successMessage && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2 font-medium animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{successMessage}</span>
+        </div>
+      )}
 
       {feedError && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between">
@@ -738,35 +856,157 @@ export const DailyProgressFeed: React.FC = () => {
                   )}
                 </div>
 
-                {/* Reactions Section */}
+                {/* Reactions & Comments Action Bar */}
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-1.5">
+                  {/* Emoji Reactions: 🔥, 👏, 💡 */}
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-[11px] text-slate-400 mr-1 font-medium">Reactions:</span>
-                    {REACTION_TYPES.map((type) => {
-                      const count = (post.reactions || []).filter((r) => r.reaction_type === type).length;
-                      const hasReacted = userReaction?.reaction_type === type;
+                    {REACTION_CONFIG.map((cfg) => {
+                      const count = (post.reactions || []).filter(
+                        (r) => r.reaction_type === cfg.type || cfg.aliases.includes(r.reaction_type)
+                      ).length;
+                      const hasReacted = userReaction && (
+                        userReaction.reaction_type === cfg.type || cfg.aliases.includes(userReaction.reaction_type)
+                      );
 
                       return (
                         <button
-                          key={type}
-                          onClick={() => handleReaction(post.id, type)}
-                          className={`px-2 py-0.5 rounded-full text-[11px] font-semibold transition-all flex items-center gap-1 ${
+                          key={cfg.type}
+                          type="button"
+                          onClick={() => handleReaction(post.id, cfg.type)}
+                          title={`${cfg.label} (${cfg.type})`}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                             hasReacted
-                              ? 'bg-teal-600 text-white shadow-xs'
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
                               : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                           }`}
                         >
-                          <span>{type}</span>
-                          {count > 0 && <span>{count}</span>}
+                          <span className="text-sm leading-none">{cfg.emoji}</span>
+                          <span className="text-[11px] font-medium">{cfg.label}</span>
+                          {count > 0 && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white/70 rounded-full">
+                              {count}
+                            </span>
+                          )}
                         </button>
                       );
                     })}
                   </div>
+
+                  {/* Comments Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => setOpenComments({ ...openComments, [post.id]: !openComments[post.id] })}
+                    className="flex items-center gap-1.5 px-2.5 py-1 text-slate-600 hover:text-navy-950 text-xs font-medium rounded-lg hover:bg-slate-100 transition-colors"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Comments</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800">
+                      {post.comments?.length || 0}
+                    </span>
+                  </button>
                 </div>
 
-                {/* Mentor Feedback Thread */}
+                {/* Classmate & Mentor Comments Thread */}
+                {openComments[post.id] && (
+                  <div className="pt-3 border-t border-slate-100 space-y-3 bg-slate-50/60 p-3.5 rounded-xl">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
+                        <MessageSquare className="w-3.5 h-3.5 text-teal-600" />
+                        Discussion & Classmate Encouragement
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {post.comments?.length || 0} comment{post.comments?.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+
+                    {post.comments && post.comments.length > 0 ? (
+                      <div className="space-y-2">
+                        {post.comments.map((comm) => {
+                          const isCommentAuthor = comm.user_id === currentUser.id;
+                          return (
+                            <div key={comm.id} className="p-2.5 bg-white rounded-xl border border-slate-200 text-xs shadow-2xs">
+                              <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-2">
+                                  {comm.user?.avatar_url ? (
+                                    <img 
+                                      src={comm.user.avatar_url} 
+                                      alt={comm.user.full_name} 
+                                      className="w-5 h-5 rounded-full object-cover shrink-0" 
+                                    />
+                                  ) : (
+                                    <div className="w-5 h-5 rounded-full bg-navy-800 text-white flex items-center justify-center font-bold text-[10px] shrink-0">
+                                      {comm.user?.full_name?.charAt(0) || 'U'}
+                                    </div>
+                                  )}
+                                  <span className="font-semibold text-slate-900 text-xs">{comm.user?.full_name || 'Classmate'}</span>
+                                  {comm.user?.role === 'mentor' && (
+                                    <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 bg-teal-50 text-teal-800 rounded">
+                                      Mentor
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[10px] text-slate-400">
+                                    {new Date(comm.created_at).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                  {(isCommentAuthor || isMentor) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteComment(comm.id)}
+                                      className="text-slate-400 hover:text-rose-600 transition-colors"
+                                      title="Delete comment"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                              <p className="text-slate-700 pl-7 leading-relaxed">{comm.content}</p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-400 italic">No comments yet. Be the first classmate or mentor to share encouragement!</p>
+                    )}
+
+                    {/* Comment Composer */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <input
+                        type="text"
+                        placeholder="Write a comment or question for your classmate..."
+                        value={commentInputs[post.id] || ''}
+                        onChange={(e) => setCommentInputs({ ...commentInputs, [post.id]: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSendComment(post.id);
+                        }}
+                        className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSendComment(post.id)}
+                        disabled={!commentInputs[post.id]?.trim() || submittingComment[post.id]}
+                        className="px-3 py-1.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors"
+                      >
+                        {submittingComment[post.id] ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Send className="w-3 h-3 text-teal-400" />
+                        )}
+                        Comment
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Mentor Guidance Thread */}
                 {post.feedback && post.feedback.length > 0 && (
                   <div className="pt-2 space-y-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-teal-900">
+                      Official Faculty Mentor Guidance:
+                    </span>
                     {post.feedback.map((fb) => (
                       <div key={fb.id} className="p-3 bg-teal-50/70 rounded-xl border border-teal-100 text-xs">
                         <div className="flex items-center justify-between font-semibold text-teal-950 mb-0.5">
@@ -786,7 +1026,7 @@ export const DailyProgressFeed: React.FC = () => {
                   <div className="pt-2 flex items-center gap-2">
                     <input
                       type="text"
-                      placeholder="Leave faculty mentoring guidance..."
+                      placeholder="Leave official faculty mentoring guidance..."
                       value={feedbackInputs[post.id] || ''}
                       onChange={(e) => setFeedbackInputs({ ...feedbackInputs, [post.id]: e.target.value })}
                       onKeyDown={(e) => {
@@ -800,7 +1040,7 @@ export const DailyProgressFeed: React.FC = () => {
                       className="px-3 py-1.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors"
                     >
                       <Send className="w-3 h-3 text-teal-400" />
-                      Feedback
+                      Mentor Feedback
                     </button>
                   </div>
                 )}

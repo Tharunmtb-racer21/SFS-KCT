@@ -15,7 +15,12 @@ import {
   UploadCloud,
   FileCheck,
   Paperclip,
-  X
+  X,
+  Clock,
+  Edit3,
+  CheckCircle2,
+  AlertTriangle,
+  RotateCcw
 } from 'lucide-react';
 import { validateAttachmentFile } from '../utils/imageUtils';
 
@@ -25,9 +30,12 @@ export const WeeklyReportsPage: React.FC = () => {
   const [reports, setReports] = useState<WeeklyReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
+  const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<number | 'all'>('all');
+  const [mentorFilterStatus, setMentorFilterStatus] = useState<'all' | 'pending' | 'approved' | 'needs_revision'>('all');
 
   // Student Weekly Report Form State
   const [weekNumber, setWeekNumber] = useState<number>(8);
@@ -38,6 +46,7 @@ export const WeeklyReportsPage: React.FC = () => {
   const [skillsLearned, setSkillsLearned] = useState('');
   const [goalsAchieved, setGoalsAchieved] = useState('');
   const [difficultiesFaced, setDifficultiesFaced] = useState('');
+  const [hoursSpent, setHoursSpent] = useState<number | string>(12);
   const [nextWeekGoals, setNextWeekGoals] = useState('');
   const [attachedFile, setAttachedFile] = useState<{ name: string; size: number } | null>(null);
   const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
@@ -45,8 +54,9 @@ export const WeeklyReportsPage: React.FC = () => {
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Mentor Review feedback input state
+  // Mentor Review feedback input state & decisions
   const [reviewInputs, setReviewInputs] = useState<{ [reportId: string]: string }>({});
+  const [reviewStatusDecisions, setReviewStatusDecisions] = useState<{ [reportId: string]: 'approved' | 'needs_revision' }>({});
 
   const loadReports = async () => {
     if (!activeClass || !currentUser) {
@@ -94,16 +104,70 @@ export const WeeklyReportsPage: React.FC = () => {
   const isMentor = currentUser.role === 'mentor';
   const isStudent = currentUser.role === 'student';
 
-  const filteredReports = selectedWeekFilter === 'all'
-    ? reports
-    : reports.filter(r => r.week_number === selectedWeekFilter);
+  // For mentors: show only submitted reports in the review queue (drafts stay private to students)
+  const baseReports = isMentor ? reports.filter(r => r.status === 'submitted') : reports;
+
+  const filteredReports = baseReports.filter(r => {
+    if (selectedWeekFilter !== 'all' && r.week_number !== selectedWeekFilter) {
+      return false;
+    }
+    if (isMentor && mentorFilterStatus !== 'all') {
+      const currentReviewStatus = r.review_status || (r.mentor_reviewed ? 'approved' : 'pending');
+      if (mentorFilterStatus === 'pending' && currentReviewStatus !== 'pending') return false;
+      if (mentorFilterStatus === 'approved' && currentReviewStatus !== 'approved') return false;
+      if (mentorFilterStatus === 'needs_revision' && currentReviewStatus !== 'needs_revision') return false;
+    }
+    return true;
+  });
 
   // Available week numbers for filter dropdown
-  const availableWeeks = Array.from(new Set(reports.map(r => r.week_number))).sort((a, b) => b - a);
+  const availableWeeks = Array.from(new Set(baseReports.map(r => r.week_number))).sort((a, b) => b - a);
+
+  const resetFormState = () => {
+    setEditingReportId(null);
+    setAchievements('');
+    setActivitiesCompleted('');
+    setSkillsLearned('');
+    setGoalsAchieved('');
+    setDifficultiesFaced('');
+    setHoursSpent(12);
+    setNextWeekGoals('');
+    setSelectedFileObj(null);
+    setAttachedFile(null);
+    setUploadProgress(null);
+    setFormError('');
+  };
+
+  const handleEditDraft = (report: WeeklyReport) => {
+    setEditingReportId(report.id);
+    setWeekNumber(report.week_number);
+    setStartDate(report.start_date);
+    setEndDate(report.end_date);
+    setAchievements(report.achievements);
+    setActivitiesCompleted(report.activities_completed);
+    setSkillsLearned(report.skills_learned || '');
+    setGoalsAchieved(report.goals_achieved || '');
+    setDifficultiesFaced(report.difficulties_faced || '');
+    setHoursSpent(report.hours_spent !== undefined ? report.hours_spent : 12);
+    setNextWeekGoals(report.next_week_goals);
+    if (report.attachment_name) {
+      setAttachedFile({ name: report.attachment_name, size: 0 });
+    } else {
+      setAttachedFile(null);
+    }
+    setSelectedFileObj(null);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const handleSaveReport = async (status: 'draft' | 'submitted') => {
     if (!achievements.trim() || !activitiesCompleted.trim() || !nextWeekGoals.trim()) {
-      setFormError('Please complete achievements, activities completed, and next week goals.');
+      setFormError('Please complete required fields: achievements, activities completed, and next week goals.');
+      return;
+    }
+
+    if (!hoursSpent || Number(hoursSpent) <= 0) {
+      setFormError('Please enter valid hours spent on coursework/milestones this week.');
       return;
     }
 
@@ -127,7 +191,7 @@ export const WeeklyReportsPage: React.FC = () => {
         setUploadProgress(100);
       }
 
-      const payload = {
+      const payload: any = {
         class_id: activeClass.id,
         student_id: currentUser.id,
         week_number: Number(weekNumber),
@@ -138,12 +202,20 @@ export const WeeklyReportsPage: React.FC = () => {
         skills_learned: skillsLearned.trim() || undefined,
         goals_achieved: goalsAchieved.trim() || undefined,
         difficulties_faced: difficultiesFaced.trim() || undefined,
+        hours_spent: Number(hoursSpent),
         next_week_goals: nextWeekGoals.trim(),
-        attachment_url: uploadedUrl,
-        attachment_name: uploadedName,
         status,
         submitted_at: new Date().toISOString(),
       };
+
+      if (editingReportId) {
+        payload.id = editingReportId;
+      }
+
+      if (uploadedUrl) {
+        payload.attachment_url = uploadedUrl;
+        payload.attachment_name = uploadedName;
+      }
 
       if (activeMode === 'production') {
         await supabaseService.saveWeeklyReport(payload);
@@ -152,15 +224,13 @@ export const WeeklyReportsPage: React.FC = () => {
       }
 
       setShowForm(false);
-      setAchievements('');
-      setActivitiesCompleted('');
-      setSkillsLearned('');
-      setGoalsAchieved('');
-      setDifficultiesFaced('');
-      setNextWeekGoals('');
-      setSelectedFileObj(null);
-      setAttachedFile(null);
-      setUploadProgress(null);
+      resetFormState();
+      setSuccessMessage(
+        status === 'submitted'
+          ? 'Weekly report successfully submitted to your mentor for review.'
+          : 'Weekly report draft saved. You can continue editing before final submission.'
+      );
+      setTimeout(() => setSuccessMessage(null), 4000);
       await loadReports();
     } catch (err: any) {
       setFormError(`Failed to save report: ${err.message}`);
@@ -173,13 +243,17 @@ export const WeeklyReportsPage: React.FC = () => {
     const content = reviewInputs[reportId];
     if (!content || !content.trim() || !isMentor) return;
 
+    const decision = reviewStatusDecisions[reportId] || 'approved';
+
     try {
       if (activeMode === 'production') {
-        await supabaseService.addWeeklyReportFeedback(reportId, currentUser.id, content.trim());
+        await supabaseService.addWeeklyReportFeedback(reportId, currentUser.id, content.trim(), decision);
       } else {
-        appStore.addWeeklyReportFeedback(reportId, currentUser.id, content.trim());
+        appStore.addWeeklyReportFeedback(reportId, currentUser.id, content.trim(), decision);
       }
       setReviewInputs({ ...reviewInputs, [reportId]: '' });
+      setSuccessMessage(`Assessment feedback saved as ${decision === 'approved' ? 'Approved' : 'Needs Revision'}.`);
+      setTimeout(() => setSuccessMessage(null), 3000);
       await loadReports();
     } catch (err: any) {
       alert(`Feedback submission failed: ${err.message}`);
@@ -224,7 +298,15 @@ export const WeeklyReportsPage: React.FC = () => {
 
           {isStudent && (
             <button
-              onClick={() => setShowForm(!showForm)}
+              onClick={() => {
+                if (showForm) {
+                  setShowForm(false);
+                  resetFormState();
+                } else {
+                  resetFormState();
+                  setShowForm(true);
+                }
+              }}
               className="px-4 py-2 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
             >
               <Plus className="w-4 h-4 text-teal-400" />
@@ -233,6 +315,14 @@ export const WeeklyReportsPage: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Success Notification Banner */}
+      {successMessage && (
+        <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2 font-medium animate-in fade-in">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{successMessage}</span>
+        </div>
+      )}
 
       {reportError && (
         <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between">
@@ -246,15 +336,60 @@ export const WeeklyReportsPage: React.FC = () => {
         </div>
       )}
 
+      {/* Mentor Review Queue Status Filters */}
+      {isMentor && (
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+          <span className="text-slate-400 font-semibold mr-1">Queue Filter:</span>
+          {(['all', 'pending', 'approved', 'needs_revision'] as const).map((status) => {
+            const count = status === 'all'
+              ? baseReports.length
+              : baseReports.filter(r => (r.review_status || (r.mentor_reviewed ? 'approved' : 'pending')) === status).length;
+
+            const labels = {
+              all: 'All Submitted',
+              pending: 'Pending Review',
+              approved: 'Approved',
+              needs_revision: 'Needs Revision',
+            };
+
+            const isActive = mentorFilterStatus === status;
+
+            return (
+              <button
+                key={status}
+                onClick={() => setMentorFilterStatus(status)}
+                className={`px-3 py-1.5 rounded-xl font-medium transition-colors flex items-center gap-1.5 ${
+                  isActive
+                    ? 'bg-navy-900 text-white shadow-xs'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <span>{labels[status]}</span>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                  isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+                }`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Student Weekly Report Composer Form */}
       {showForm && isStudent && (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-md p-6 animate-in fade-in slide-in-from-top-2">
           <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
             <div>
-              <h2 className="text-base font-bold text-navy-950">Draft Weekly Academic Summary</h2>
-              <p className="text-xs text-slate-500">Reflect on achievements, acquired competencies, and next week plan</p>
+              <h2 className="text-base font-bold text-navy-950 flex items-center gap-2">
+                <CalendarCheck className="w-4 h-4 text-teal-600" />
+                {editingReportId ? 'Revise & Edit Weekly Summary Report' : 'Draft / Submit Weekly Academic Summary'}
+              </h2>
+              <p className="text-xs text-slate-500">
+                Formal weekly milestone evaluation: document achievements, difficulties, hours, and goals.
+              </p>
             </div>
-            <span className="text-xs font-mono font-semibold text-teal-700 bg-teal-50 px-2 py-0.5 rounded">
+            <span className="text-xs font-mono font-semibold text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg">
               Week {weekNumber}
             </span>
           </div>
@@ -312,6 +447,7 @@ export const WeeklyReportsPage: React.FC = () => {
               </label>
               <textarea
                 rows={2}
+                required
                 placeholder="What tangible milestones or breakthroughs did you accomplish?"
                 value={achievements}
                 onChange={(e) => setAchievements(e.target.value)}
@@ -325,6 +461,7 @@ export const WeeklyReportsPage: React.FC = () => {
               </label>
               <textarea
                 rows={2}
+                required
                 placeholder="List completed lab sessions, circuit designs, coding exercises, or experiments..."
                 value={activitiesCompleted}
                 onChange={(e) => setActivitiesCompleted(e.target.value)}
@@ -332,14 +469,14 @@ export const WeeklyReportsPage: React.FC = () => {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Skills Learned & Consolidated
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. ARM assembly, Signal filtering, Cadence Allegro"
+                  placeholder="e.g. ARM assembly, Signal filtering"
                   value={skillsLearned}
                   onChange={(e) => setSkillsLearned(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
@@ -358,12 +495,28 @@ export const WeeklyReportsPage: React.FC = () => {
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
               </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Hours Spent This Week *
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={100}
+                  required
+                  placeholder="e.g. 15"
+                  value={hoursSpent}
+                  onChange={(e) => setHoursSpent(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Difficulties or Bottlenecks Faced
+                  Difficulties or Bottlenecks Faced (Challenges)
                 </label>
                 <input
                   type="text"
@@ -380,6 +533,7 @@ export const WeeklyReportsPage: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  required
                   placeholder="e.g. Conduct thermal testing and present demo"
                   value={nextWeekGoals}
                   onChange={(e) => setNextWeekGoals(e.target.value)}
@@ -427,7 +581,9 @@ export const WeeklyReportsPage: React.FC = () => {
                   <div className="flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border border-emerald-200 px-2 py-0.5 rounded text-xs font-medium">
                     <FileCheck className="w-3.5 h-3.5 shrink-0" />
                     <span className="truncate max-w-[200px]">{attachedFile.name}</span>
-                    <span className="text-[10px] text-emerald-600">({(attachedFile.size / 1024).toFixed(0)} KB)</span>
+                    {attachedFile.size > 0 && (
+                      <span className="text-[10px] text-emerald-600">({(attachedFile.size / 1024).toFixed(0)} KB)</span>
+                    )}
                     <button
                       type="button"
                       onClick={() => { setSelectedFileObj(null); setAttachedFile(null); }}
@@ -443,12 +599,20 @@ export const WeeklyReportsPage: React.FC = () => {
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button
                 type="button"
+                onClick={() => { setShowForm(false); resetFormState(); }}
+                className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 text-xs font-medium transition-colors"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
                 disabled={isSubmitting}
                 onClick={() => handleSaveReport('draft')}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 transition-colors"
               >
                 <Save className="w-3.5 h-3.5" />
-                Save Draft
+                Save as Draft
               </button>
 
               <button
@@ -485,7 +649,7 @@ export const WeeklyReportsPage: React.FC = () => {
           <CalendarCheck className="w-10 h-10 mx-auto mb-2 opacity-30" />
           <p className="text-sm font-semibold text-slate-700">No weekly reports found</p>
           <p className="text-xs text-slate-400 mt-1">
-            {isStudent ? 'Draft your first report above.' : 'No weekly submissions for the selected filter.'}
+            {isStudent ? 'Draft your first report above.' : 'No weekly submissions match the selected filter.'}
           </p>
         </div>
       ) : (
@@ -493,6 +657,7 @@ export const WeeklyReportsPage: React.FC = () => {
           {filteredReports.map((report) => {
             const author = report.student;
             const isDraft = report.status === 'draft';
+            const reviewStatus = report.review_status || (report.mentor_reviewed ? 'approved' : 'pending');
 
             return (
               <div 
@@ -524,24 +689,73 @@ export const WeeklyReportsPage: React.FC = () => {
                           </span>
                         )}
                       </div>
-                      <div className="text-xs text-slate-500 flex items-center gap-1">
+                      <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
                         <span>Period: {report.start_date} &rarr; {report.end_date}</span>
+                        {report.hours_spent !== undefined && (
+                          <>
+                            <span>&bull;</span>
+                            <span className="flex items-center gap-1 font-medium text-slate-700">
+                              <Clock className="w-3 h-3 text-teal-600" />
+                              {report.hours_spent} Hours Logged
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${
-                      isDraft 
-                        ? 'bg-slate-100 text-slate-600' 
-                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                    }`}>
-                      {isDraft ? 'Draft' : 'Submitted'}
-                    </span>
-                    {report.mentor_reviewed && (
-                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-teal-50 text-teal-800 border border-teal-200">
-                        Mentor Reviewed
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Status Badge */}
+                    {isDraft ? (
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 flex items-center gap-1">
+                        <Edit3 className="w-3 h-3" />
+                        Draft (Private)
                       </span>
+                    ) : (
+                      <>
+                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                          Submitted
+                        </span>
+                        {reviewStatus === 'approved' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            Approved
+                          </span>
+                        )}
+                        {reviewStatus === 'needs_revision' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-800 border border-rose-200 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-rose-600" />
+                            Needs Revision
+                          </span>
+                        )}
+                        {reviewStatus === 'pending' && (
+                          <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 flex items-center gap-1">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            Pending Review
+                          </span>
+                        )}
+                      </>
+                    )}
+
+                    {/* Student Edit Draft / Resubmit button */}
+                    {isStudent && isDraft && (
+                      <button
+                        onClick={() => handleEditDraft(report)}
+                        className="px-2.5 py-1 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors"
+                      >
+                        <Edit3 className="w-3 h-3 text-teal-600" />
+                        Edit Draft
+                      </button>
+                    )}
+
+                    {isStudent && reviewStatus === 'needs_revision' && (
+                      <button
+                        onClick={() => handleEditDraft(report)}
+                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors shadow-xs"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                        Revise & Resubmit
+                      </button>
                     )}
                   </div>
                 </div>
@@ -580,17 +794,25 @@ export const WeeklyReportsPage: React.FC = () => {
                   {report.difficulties_faced && (
                     <div>
                       <h4 className="font-bold text-rose-800 text-[11px] uppercase tracking-wider mb-0.5">
-                        Difficulties Faced
+                        Difficulties & Bottlenecks Faced
                       </h4>
                       <p className="text-slate-700">{report.difficulties_faced}</p>
                     </div>
                   )}
 
-                  <div className="p-3 bg-teal-50/50 rounded-xl border border-teal-100">
-                    <h4 className="font-bold text-teal-900 text-[11px] uppercase tracking-wider mb-0.5">
-                      Next Week Target Goals
-                    </h4>
-                    <p className="text-slate-800">{report.next_week_goals}</p>
+                  <div className="p-3 bg-teal-50/50 rounded-xl border border-teal-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <h4 className="font-bold text-teal-900 text-[11px] uppercase tracking-wider mb-0.5">
+                        Next Week Target Goals
+                      </h4>
+                      <p className="text-slate-800">{report.next_week_goals}</p>
+                    </div>
+                    {report.hours_spent !== undefined && (
+                      <div className="sm:text-right shrink-0">
+                        <span className="text-[10px] uppercase font-bold text-teal-800 block">Effort Logged</span>
+                        <span className="font-bold text-teal-950 text-sm">{report.hours_spent} Hours</span>
+                      </div>
+                    )}
                   </div>
 
                   {report.attachment_url && (
@@ -611,44 +833,94 @@ export const WeeklyReportsPage: React.FC = () => {
                 {/* Feedback Thread */}
                 {report.feedback && report.feedback.length > 0 && (
                   <div className="pt-3 border-t border-slate-100 space-y-2">
-                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-teal-800">
-                      Faculty Mentor Feedback & Assessment:
+                    <h4 className="text-[11px] font-bold uppercase tracking-wider text-teal-800 flex items-center gap-1.5">
+                      <CheckCircle className="w-3.5 h-3.5 text-teal-600" />
+                      Faculty Mentor Feedback & Evaluation:
                     </h4>
                     {report.feedback.map((fb) => (
                       <div key={fb.id} className="p-3 bg-navy-50 rounded-xl border border-navy-100 text-xs">
                         <div className="flex items-center justify-between font-semibold text-navy-900 mb-0.5">
-                          <span>{fb.mentor?.full_name || 'Faculty Mentor'}</span>
+                          <div className="flex items-center gap-2">
+                            <span>{fb.mentor?.full_name || 'Faculty Mentor'}</span>
+                            {fb.status_decision && (
+                              <span className={`text-[10px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                                fb.status_decision === 'approved'
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-rose-100 text-rose-800'
+                              }`}>
+                                {fb.status_decision === 'approved' ? 'Approved' : 'Revision Required'}
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-slate-400 font-normal">
                             {new Date(fb.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
                           </span>
                         </div>
-                        <p className="text-slate-700">{fb.content}</p>
+                        <p className="text-slate-700 leading-relaxed">{fb.content}</p>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Mentor Feedback Composer */}
+                {/* Mentor Review & Evaluation Box */}
                 {isMentor && (
-                  <div className="pt-3 border-t border-slate-100 flex items-center gap-2">
-                    <input
-                      type="text"
-                      placeholder="Leave academic feedback and review remarks on this weekly report..."
-                      value={reviewInputs[report.id] || ''}
-                      onChange={(e) => setReviewInputs({ ...reviewInputs, [report.id]: e.target.value })}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSendReportFeedback(report.id);
-                      }}
-                      className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
-                    />
-                    <button
-                      onClick={() => handleSendReportFeedback(report.id)}
-                      disabled={!reviewInputs[report.id]?.trim()}
-                      className="px-3 py-1.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors"
-                    >
-                      <CheckCircle className="w-3.5 h-3.5 text-teal-400" />
-                      Review & Feedback
-                    </button>
+                  <div className="pt-3 border-t border-slate-100 space-y-2.5">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <span className="text-xs font-bold text-slate-800">Mentor Evaluation & Decision:</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setReviewStatusDecisions({
+                            ...reviewStatusDecisions,
+                            [report.id]: 'approved'
+                          })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                            (reviewStatusDecisions[report.id] || 'approved') === 'approved'
+                              ? 'bg-emerald-600 text-white shadow-xs'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <CheckCircle2 className="w-3 h-3" />
+                          Approve Report
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setReviewStatusDecisions({
+                            ...reviewStatusDecisions,
+                            [report.id]: 'needs_revision'
+                          })}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
+                            reviewStatusDecisions[report.id] === 'needs_revision'
+                              ? 'bg-rose-600 text-white shadow-xs'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <AlertTriangle className="w-3 h-3" />
+                          Request Revision
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Leave formal grading remarks, strengths, and recommended improvements..."
+                        value={reviewInputs[report.id] || ''}
+                        onChange={(e) => setReviewInputs({ ...reviewInputs, [report.id]: e.target.value })}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSendReportFeedback(report.id);
+                        }}
+                        className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                      <button
+                        onClick={() => handleSendReportFeedback(report.id)}
+                        disabled={!reviewInputs[report.id]?.trim()}
+                        className="px-3.5 py-1.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors"
+                      >
+                        <CheckCircle className="w-3.5 h-3.5 text-teal-400" />
+                        Submit Evaluation
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

@@ -362,5 +362,197 @@ describe('MentorPulse - Core Domain & Security Tests', () => {
       expect(replaced.avatar_url).toContain('avatar_2.webp');
     });
   });
+
+  describe('8. Refined Daily Progress & Weekly Formal Report Workflows', () => {
+    it('creates daily progress post with today\'s work, skills, obstacles, and next steps', () => {
+      const newPost = store.createDailyPost({
+        class_id: 'class-ece-2024',
+        student_id: 'student-ece-1',
+        category: 'Lab Experiment',
+        title: 'STM32 FreeRTOS Semaphore Synchronization',
+        description: 'Successfully implemented binary semaphore to avoid priority inversion on ADC task.',
+        skills_gained: ['FreeRTOS', 'Embedded C', 'Real-Time Systems'],
+        challenges: 'Priority inversion occurred during serial UART printing task.',
+        next_steps: 'Migrate to priority ceiling protocol and measure interrupt latency.',
+        activity_date: '2026-10-27',
+      });
+
+      expect(newPost.id).toBeDefined();
+      expect(newPost.title).toContain('FreeRTOS');
+      expect(newPost.skills_gained).toContain('FreeRTOS');
+      expect(newPost.challenges).toContain('Priority inversion');
+      expect(newPost.next_steps).toContain('Migrate to priority');
+
+      const classPosts = store.getDailyPostsForClass('class-ece-2024');
+      const found = classPosts.find((p) => p.id === newPost.id);
+      expect(found).toBeDefined();
+      expect(found?.student?.full_name).toBeDefined();
+    });
+
+    it('supports emoji reactions 🔥, 👏, and 💡 on daily posts with toggle behavior', () => {
+      const posts = store.getDailyPostsForClass('class-ece-2024');
+      const targetPost = posts[0];
+
+      // 1. React with 🔥
+      const afterFire = store.reactToPost(targetPost.id, 'student-ece-2', '🔥');
+      const fireReaction = afterFire.reactions?.find((r) => r.user_id === 'student-ece-2');
+      expect(fireReaction?.reaction_type).toBe('🔥');
+
+      // 2. React with 💡 (changes reaction)
+      const afterIdea = store.reactToPost(targetPost.id, 'student-ece-2', '💡');
+      const ideaReaction = afterIdea.reactions?.find((r) => r.user_id === 'student-ece-2');
+      expect(ideaReaction?.reaction_type).toBe('💡');
+
+      // 3. React with 💡 again (toggles off)
+      const afterToggle = store.reactToPost(targetPost.id, 'student-ece-2', '💡');
+      const toggledOff = afterToggle.reactions?.find((r) => r.user_id === 'student-ece-2');
+      expect(toggledOff).toBeUndefined();
+
+      // 4. React with 👏
+      const afterClap = store.reactToPost(targetPost.id, 'student-ece-2', '👏');
+      expect(afterClap.reactions?.some((r) => r.reaction_type === '👏')).toBe(true);
+    });
+
+    it('supports persistent classmate & mentor comments on daily progress posts', () => {
+      const posts = store.getDailyPostsForClass('class-ece-2024');
+      const targetPost = posts[0];
+
+      // Classmate adds a comment
+      const comment = store.addPostComment(
+        targetPost.id,
+        'student-ece-2',
+        'Great work on solving the impedance mismatch! What probe attenuation did you use?'
+      );
+      expect(comment.id).toBeDefined();
+      expect(comment.content).toContain('Great work');
+
+      // Verified in class feed
+      const refreshedPosts = store.getDailyPostsForClass('class-ece-2024');
+      const postWithComment = refreshedPosts.find((p) => p.id === targetPost.id);
+      expect(postWithComment?.comments).toBeDefined();
+      expect(postWithComment?.comments?.some((c) => c.id === comment.id)).toBe(true);
+      expect(postWithComment?.comments?.find((c) => c.id === comment.id)?.user?.full_name).toBeDefined();
+
+      // Delete comment
+      store.deletePostComment(comment.id, 'student-ece-2');
+      const afterDelete = store.getDailyPostsForClass('class-ece-2024');
+      const deletedPost = afterDelete.find((p) => p.id === targetPost.id);
+      expect(deletedPost?.comments?.some((c) => c.id === comment.id)).toBe(false);
+    });
+
+    it('handles weekly formal report Draft, Edit, and Submit lifecycle with hours_spent', () => {
+      // 1. Create a Draft report
+      const draft = store.saveWeeklyReport({
+        class_id: 'class-ece-2024',
+        student_id: 'student-ece-1',
+        week_number: 9,
+        start_date: '2026-10-20',
+        end_date: '2026-10-26',
+        achievements: 'Designed CAN transceiver isolation barrier.',
+        activities_completed: 'PCB schematic layout and signal simulation.',
+        difficulties_faced: 'Trace impedance tolerance was ±12%.',
+        hours_spent: 14,
+        next_week_goals: 'Order PCB prototype boards.',
+        status: 'draft',
+        submitted_at: new Date().toISOString(),
+      });
+
+      expect(draft.id).toBeDefined();
+      expect(draft.status).toBe('draft');
+      expect(draft.hours_spent).toBe(14);
+
+      // 2. Draft is editable by student owner
+      const updatedDraft = store.saveWeeklyReport({
+        id: draft.id,
+        class_id: 'class-ece-2024',
+        student_id: 'student-ece-1',
+        week_number: 9,
+        start_date: '2026-10-20',
+        end_date: '2026-10-26',
+        achievements: 'Designed CAN transceiver isolation barrier with optocouplers.',
+        activities_completed: 'PCB schematic layout, signal simulation, and thermal analysis.',
+        difficulties_faced: 'Resolved trace impedance mismatch using differential routing.',
+        hours_spent: 18,
+        next_week_goals: 'Send Gerber files for fabrication.',
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+      });
+
+      expect(updatedDraft.status).toBe('submitted');
+      expect(updatedDraft.hours_spent).toBe(18);
+      expect(updatedDraft.achievements).toContain('optocouplers');
+
+      // 3. Submitted report appears in mentor review queue
+      const mentorReports = store.getWeeklyReportsForClass('class-ece-2024');
+      const inQueue = mentorReports.find((r) => r.id === draft.id);
+      expect(inQueue).toBeDefined();
+      expect(inQueue?.status).toBe('submitted');
+    });
+
+    it('enforces mentor evaluation with review status (approved / needs_revision) and feedback', () => {
+      // Create submitted report
+      const report = store.saveWeeklyReport({
+        class_id: 'class-ece-2024',
+        student_id: 'student-ece-2',
+        week_number: 9,
+        start_date: '2026-10-20',
+        end_date: '2026-10-26',
+        achievements: 'Implemented Kalman filter in Python.',
+        activities_completed: 'Tested filter on noisy gyro data.',
+        difficulties_faced: 'Matrix inversion divergence.',
+        hours_spent: 16,
+        next_week_goals: 'Optimize in C++ for ARM Cortex-M4.',
+        status: 'submitted',
+        submitted_at: new Date().toISOString(),
+      });
+
+      // Mentor evaluates with 'needs_revision'
+      const reviewed = store.addWeeklyReportFeedback(
+        report.id,
+        'mentor-1',
+        'Please include covariance plots for Q and R matrices before final signoff.',
+        'needs_revision'
+      );
+
+      expect(reviewed.mentor_reviewed).toBe(true);
+      expect(reviewed.review_status).toBe('needs_revision');
+      expect(reviewed.feedback?.[0].status_decision).toBe('needs_revision');
+
+      // Student views own report with mentor review status
+      const studentReports = store.getWeeklyReportsForStudent('student-ece-2', 'class-ece-2024');
+      const studentReport = studentReports.find((r) => r.id === report.id);
+      expect(studentReport?.review_status).toBe('needs_revision');
+      expect(studentReport?.feedback?.[0].content).toContain('covariance plots');
+
+      // Mentor re-evaluates to 'approved' after revision
+      const approved = store.addWeeklyReportFeedback(
+        report.id,
+        'mentor-1',
+        'Excellent revision. Covariance plots look solid. Milestone approved.',
+        'approved'
+      );
+      expect(approved.review_status).toBe('approved');
+    });
+
+    it('enforces privacy: students query only their own weekly reports and cannot see peers\' reports', () => {
+      // Kavitha (student-ece-1) reports
+      const kavithaReports = store.getWeeklyReportsForStudent('student-ece-1');
+      // Rahul (student-ece-2) reports
+      const rahulReports = store.getWeeklyReportsForStudent('student-ece-2');
+
+      expect(kavithaReports.length).toBeGreaterThan(0);
+      kavithaReports.forEach((r) => {
+        expect(r.student_id).toBe('student-ece-1');
+        // Must never include Rahul's report
+        expect(r.student_id).not.toBe('student-ece-2');
+      });
+
+      rahulReports.forEach((r) => {
+        expect(r.student_id).toBe('student-ece-2');
+        expect(r.student_id).not.toBe('student-ece-1');
+      });
+    });
+  });
 });
+
 
