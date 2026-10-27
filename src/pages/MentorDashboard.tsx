@@ -123,6 +123,13 @@ export const MentorDashboard: React.FC = () => {
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
+  const handleTeamsShare = () => {
+    const text = encodeURIComponent(
+      `Hello! Please register on MentorPulse for our class group "${activeClass.name}" (${activeClass.department}).`
+    );
+    window.open(`https://teams.microsoft.com/share?href=${encodeURIComponent(inviteUrl)}&msgText=${text}`, '_blank');
+  };
+
   const handleExportCSV = () => {
     const headers = [
       'Register Number',
@@ -263,9 +270,19 @@ export const MentorDashboard: React.FC = () => {
           <button
             onClick={handleWhatsAppShare}
             className="px-3 py-1.5 rounded-xl text-xs font-medium bg-emerald-600 hover:bg-emerald-500 text-white flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Share on WhatsApp"
           >
             <Share2 className="w-3.5 h-3.5" />
             WhatsApp Share
+          </button>
+
+          <button
+            onClick={handleTeamsShare}
+            className="px-3 py-1.5 rounded-xl text-xs font-medium bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 transition-colors shadow-xs"
+            title="Share on Microsoft Teams"
+          >
+            <Users className="w-3.5 h-3.5" />
+            Teams Share
           </button>
 
           <button

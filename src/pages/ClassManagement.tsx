@@ -98,6 +98,14 @@ export const ClassManagement: React.FC = () => {
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
+  const handleTeamsShare = (classItem: any) => {
+    const url = `${window.location.origin}/invite/${classItem.invite_code}`;
+    const text = encodeURIComponent(
+      `Hello students! Please register for our class group "${classItem.name}" (${classItem.department}) on MentorPulse.`
+    );
+    window.open(`https://teams.microsoft.com/share?href=${encodeURIComponent(url)}&msgText=${text}`, '_blank');
+  };
+
   const handleRegenerateToken = async (classId: string) => {
     if (!window.confirm('Regenerating will invalidate the previous invitation link immediately. Continue?')) return;
     try {
@@ -229,9 +237,20 @@ export const ClassManagement: React.FC = () => {
                         onClick={() => handleWhatsAppShare(c)}
                         disabled={!c.invite_active}
                         className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-lg text-xs font-medium flex items-center gap-1 transition-colors"
+                        title="Share on WhatsApp"
                       >
                         <Share2 className="w-3 h-3" />
                         WhatsApp
+                      </button>
+
+                      <button
+                        onClick={() => handleTeamsShare(c)}
+                        disabled={!c.invite_active}
+                        className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-lg text-xs font-medium flex items-center gap-1 transition-colors"
+                        title="Share on Microsoft Teams"
+                      >
+                        <Users className="w-3 h-3" />
+                        Teams
                       </button>
                     </div>
 
