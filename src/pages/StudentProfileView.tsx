@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
-import { Profile, DailyPost, WeeklyReport } from '../types';
+import { Profile, DailyPost, WeeklyReport, ReactionType } from '../types';
 import { 
   ArrowLeft, 
   Mail, 
@@ -21,6 +21,12 @@ import {
   AlertCircle
 } from 'lucide-react';
 
+const REACTION_CONFIG: { type: ReactionType; emoji: string; label: string; aliases: string[] }[] = [
+  { type: '🔥', emoji: '🔥', label: 'Inspiring', aliases: ['🔥', 'WOW'] },
+  { type: '👏', emoji: '👏', label: 'Kudos', aliases: ['👏', 'Great', 'Appreciate'] },
+  { type: '💡', emoji: '💡', label: 'Insight', aliases: ['💡', 'Excellent'] },
+];
+
 export const StudentProfileView: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>();
   const { currentUser, activeClass, refreshData, activeMode } = useApp();
@@ -34,6 +40,20 @@ export const StudentProfileView: React.FC = () => {
 
   const [feedbackText, setFeedbackText] = useState<{ [postId: string]: string }>({});
   const [submittingPostId, setSubmittingPostId] = useState<string | null>(null);
+
+  const handleReaction = async (postId: string, reactionType: ReactionType) => {
+    if (!currentUser || currentUser.role !== 'mentor') return;
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.reactToPost(postId, currentUser.id, reactionType);
+      } else {
+        appStore.reactToPost(postId, currentUser.id, reactionType);
+      }
+      await loadStudentData();
+    } catch (err: any) {
+      console.error('Reaction error:', err);
+    }
+  };
 
   const loadStudentData = async () => {
     if (!studentId) return;
@@ -325,18 +345,39 @@ export const StudentProfileView: React.FC = () => {
                   </div>
                 )}
 
-                {/* Reactions */}
-                <div className="pt-2 flex items-center gap-2">
-                  <span className="text-[11px] text-slate-400">Reactions:</span>
-                  {post.reactions && post.reactions.length > 0 ? (
-                    post.reactions.map((r) => (
-                      <span key={r.id} className="text-xs bg-slate-100 px-2 py-0.5 rounded-full text-slate-700 font-medium">
-                        {r.reaction_type}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-slate-400 italic">No reactions yet</span>
-                  )}
+                {/* Faculty Mentor Reactions */}
+                <div className="pt-2 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] text-slate-500 font-semibold mr-1">Faculty Reaction:</span>
+                  {REACTION_CONFIG.map((cfg) => {
+                    const count = (post.reactions || []).filter(
+                      (r) => r.reaction_type === cfg.type || cfg.aliases.includes(r.reaction_type)
+                    ).length;
+                    const hasReacted = (post.reactions || []).some(
+                      (r) => r.user_id === currentUser?.id && (r.reaction_type === cfg.type || cfg.aliases.includes(r.reaction_type))
+                    );
+
+                    return (
+                      <button
+                        key={cfg.type}
+                        type="button"
+                        onClick={() => handleReaction(post.id, cfg.type)}
+                        title={`Award ${cfg.label} (${cfg.type}) to ${student.full_name}`}
+                        className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                          hasReacted
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
+                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        <span className="text-sm leading-none">{cfg.emoji}</span>
+                        <span className="text-[11px] font-medium">{cfg.label}</span>
+                        {count > 0 && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white/80 rounded-full text-amber-950">
+                            {count}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
 
                 {/* Existing Mentor Feedback */}

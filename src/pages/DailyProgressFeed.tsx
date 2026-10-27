@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
@@ -21,7 +21,9 @@ import {
   MessageSquare,
   CalendarCheck,
   CheckCircle2,
-  ShieldAlert
+  ShieldAlert,
+  UserCheck,
+  ChevronRight
 } from 'lucide-react';
 import { validateAttachmentFile } from '../utils/imageUtils';
 
@@ -41,11 +43,13 @@ const REACTION_CONFIG: ReactionOption[] = [
 export const DailyProgressFeed: React.FC = () => {
   const { currentUser, activeClass, refreshData, activeMode } = useApp();
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   const [posts, setPosts] = useState<DailyPost[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [selectedStudentFilter, setSelectedStudentFilter] = useState<string>('all');
 
   const [showComposer, setShowComposer] = useState(
     searchParams.get('compose') === 'true' || searchParams.get('action') === 'new'
@@ -123,7 +127,7 @@ export const DailyProgressFeed: React.FC = () => {
   }, [activeClass?.id, currentUser?.id]);
 
   const loadPosts = async () => {
-    if (!activeClass) {
+    if (!activeClass || !currentUser) {
       setPosts([]);
       return;
     }
@@ -131,15 +135,27 @@ export const DailyProgressFeed: React.FC = () => {
     setFeedError(null);
     try {
       if (activeMode === 'production') {
-        const livePosts = await supabaseService.getDailyPostsForClass(activeClass.id);
-        setPosts(livePosts);
+        if (currentUser.role === 'student') {
+          // 1-on-1 Mentoring: Student loads exclusively their own progress channel with faculty
+          const myPosts = await supabaseService.getDailyPostsForStudent(currentUser.id, activeClass.id);
+          setPosts(myPosts);
+        } else {
+          // Faculty mentor views all student submissions for this class
+          const livePosts = await supabaseService.getDailyPostsForClass(activeClass.id);
+          setPosts(livePosts);
+        }
       } else {
-        const demoPosts = appStore.getDailyPostsForClass(activeClass.id);
-        setPosts(demoPosts);
+        if (currentUser.role === 'student') {
+          const myPosts = appStore.getDailyPostsForStudent(currentUser.id, activeClass.id);
+          setPosts(myPosts);
+        } else {
+          const demoPosts = appStore.getDailyPostsForClass(activeClass.id);
+          setPosts(demoPosts);
+        }
       }
     } catch (err: any) {
       console.error('Failed to load feed:', err);
-      setFeedError(err.message || 'Failed to load class daily posts from backend.');
+      setFeedError(err.message || 'Failed to load progress posts.');
     } finally {
       setIsLoading(false);
     }
@@ -147,7 +163,7 @@ export const DailyProgressFeed: React.FC = () => {
 
   useEffect(() => {
     loadPosts();
-  }, [activeClass?.id, activeMode]);
+  }, [activeClass?.id, activeMode, currentUser?.id]);
 
   if (!currentUser) {
     return <div className="p-8 text-center text-slate-500">Please sign in to view the progress feed.</div>;
@@ -348,6 +364,10 @@ export const DailyProgressFeed: React.FC = () => {
   };
 
   const handleReaction = async (postId: string, reactionType: ReactionType) => {
+    if (!isMentor) {
+      // University policy: Reactions can only be awarded by faculty mentors
+      return;
+    }
     try {
       if (activeMode === 'production') {
         await supabaseService.reactToPost(postId, currentUser.id, reactionType);
@@ -382,6 +402,13 @@ export const DailyProgressFeed: React.FC = () => {
   const handleSendComment = async (postId: string) => {
     const content = commentInputs[postId];
     if (!content || !content.trim()) return;
+
+    const targetPost = posts.find((p) => p.id === postId);
+    // Strict 1-on-1 Rule: Only Faculty Mentor or the Student Author can exchange guidance
+    if (!isMentor && targetPost?.student_id !== currentUser.id) {
+      alert('Only the faculty mentor and the student can exchange messages on this progress update.');
+      return;
+    }
 
     setSubmittingComment({ ...submittingComment, [postId]: true });
     try {
@@ -427,7 +454,14 @@ export const DailyProgressFeed: React.FC = () => {
             <span className="text-xs text-slate-400">&bull;</span>
             <span className="text-xs text-teal-800 font-medium">SFS @ Kumaraguru College of Technology</span>
           </div>
-          <h1 className="text-2xl font-bold text-navy-950 mt-1">Class Progress Stream</h1>
+          <h1 className="text-2xl font-bold text-navy-950 mt-1">
+            {isStudent ? 'My Mentoring Progress Stream' : 'Student Progress Review Stream'}
+          </h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {isStudent 
+              ? 'Private 1-on-1 progress channel directly between you and your faculty mentor.' 
+              : `Review individual student submissions for ${activeClass.name}.`}
+          </p>
         </div>
 
         {isStudent && (
@@ -436,22 +470,22 @@ export const DailyProgressFeed: React.FC = () => {
             className="px-4 py-2 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
           >
             <Plus className="w-4 h-4 text-teal-400" />
-            {showComposer ? 'Close Composer' : 'Share Daily Progress'}
+            {showComposer ? 'Close Composer' : 'Post Daily Progress'}
           </button>
         )}
       </div>
 
-      {/* Student Quick Checkpoints Banner */}
+      {/* Student 1-on-1 Mentoring Banner */}
       {isStudent && (
         <div className="bg-gradient-to-r from-navy-900 to-navy-950 rounded-2xl p-4 sm:p-5 text-white shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <div className="text-[11px] font-semibold text-teal-400 uppercase tracking-wider flex items-center gap-1.5 flex-wrap">
               <Sparkles className="w-3.5 h-3.5" />
-              Student Academic Workstation &bull; SFS @ Kumaraguru College of Technology
+              1-on-1 Faculty Mentoring Stream &bull; SFS @ Kumaraguru College of Technology
             </div>
-            <h2 className="text-base font-bold mt-0.5">Stay Accountable & Showcase Progress</h2>
+            <h2 className="text-base font-bold mt-0.5">Direct Progress Reporting to Faculty</h2>
             <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
-              MentorPulse by THARUN N E &bull; Log your daily check-in with peers or submit your weekly formal milestone report for mentor grading.
+              MentorPulse by THARUN N E &bull; Your daily updates and weekly reports are private communications delivered directly to your faculty mentor. Only your mentor can review, react, and leave guidance.
             </p>
           </div>
           <div className="flex items-center gap-2.5 shrink-0 flex-wrap">
@@ -470,6 +504,35 @@ export const DailyProgressFeed: React.FC = () => {
               Submit Weekly Report
             </Link>
           </div>
+        </div>
+      )}
+
+      {/* Faculty 1-on-1 Student Filter Ribbon */}
+      {isMentor && (
+        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <UserCheck className="w-4 h-4 text-teal-600 shrink-0" />
+            <span className="text-xs font-semibold text-slate-700">Filter by Student:</span>
+            <select
+              value={selectedStudentFilter}
+              onChange={(e) => setSelectedStudentFilter(e.target.value)}
+              className="text-xs px-3 py-1.5 rounded-xl border border-slate-300 bg-slate-50 font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="all">All Enrolled Students ({posts.length} updates)</option>
+              {Array.from(new Set(posts.map((p) => p.student_id))).map((sId) => {
+                const sObj = posts.find((p) => p.student_id === sId)?.student;
+                const sCount = posts.filter((p) => p.student_id === sId).length;
+                return (
+                  <option key={sId} value={sId}>
+                    {sObj?.full_name || 'Student'} ({sObj?.student_reg_no || 'Reg. No Pending'}) — {sCount} post{sCount === 1 ? '' : 's'}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <span className="text-[11px] text-slate-400">
+            Touch any student card to open their full progress profile.
+          </span>
         </div>
       )}
 
@@ -782,7 +845,10 @@ export const DailyProgressFeed: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-5">
-          {posts.map((post) => {
+          {(isMentor && selectedStudentFilter !== 'all'
+            ? posts.filter((p) => p.student_id === selectedStudentFilter)
+            : posts
+          ).map((post) => {
             const author = post.student;
             const isAuthor = currentUser.id === post.student_id;
             const userReaction = post.reactions?.find((r) => r.user_id === currentUser.id);
@@ -794,21 +860,36 @@ export const DailyProgressFeed: React.FC = () => {
               >
                 {/* Author row & options */}
                 <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3">
+                  <div 
+                    onClick={() => {
+                      if (isMentor && author?.id) {
+                        navigate(`/mentor/students/${author.id}`);
+                      }
+                    }}
+                    className={`flex items-center gap-3 ${isMentor ? 'cursor-pointer group' : ''}`}
+                    title={isMentor ? `Touch to view ${author?.full_name}'s full profile & progress timeline` : undefined}
+                  >
                     {author?.avatar_url ? (
                       <img 
                         src={author.avatar_url} 
                         alt={author.full_name} 
-                        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0" 
+                        className="w-10 h-10 rounded-full object-cover border border-slate-200 shrink-0 group-hover:ring-2 group-hover:ring-teal-500 transition-all" 
                       />
                     ) : (
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-navy-800 to-navy-950 text-white flex items-center justify-center font-bold text-sm shrink-0">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-navy-800 to-navy-950 text-white flex items-center justify-center font-bold text-sm shrink-0 group-hover:ring-2 group-hover:ring-teal-500 transition-all">
                         {author?.full_name?.charAt(0) || 'S'}
                       </div>
                     )}
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900 text-sm">{author?.full_name}</span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-slate-900 text-sm group-hover:text-teal-700 transition-colors">
+                          {author?.full_name}
+                        </span>
+                        {isMentor && (
+                          <span className="text-[10px] text-teal-700 bg-teal-50 hover:bg-teal-100 px-1.5 py-0.2 rounded font-medium flex items-center gap-0.5 border border-teal-200/60">
+                            View Profile <ChevronRight className="w-3 h-3" />
+                          </span>
+                        )}
                         {author?.student_reg_no && (
                           <span className="font-mono text-[11px] text-teal-700 font-medium">
                             {author.student_reg_no}
@@ -817,7 +898,7 @@ export const DailyProgressFeed: React.FC = () => {
                       </div>
                       <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
                         <Calendar className="w-3 h-3" />
-                        Activity Date: {post.activity_date} &bull; Posted {new Date(post.created_at).toLocaleDateString()}
+                        Activity Date: {post.activity_date} &bull; Submitted {new Date(post.created_at).toLocaleDateString()}
                       </div>
                     </div>
                   </div>
@@ -913,7 +994,9 @@ export const DailyProgressFeed: React.FC = () => {
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                   {/* Emoji Reactions: 🔥, 👏, 💡 */}
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[11px] text-slate-400 mr-1 font-medium">Reactions:</span>
+                    <span className="text-[11px] text-slate-400 mr-1 font-medium">
+                      {isMentor ? 'Give Faculty Reaction:' : 'Faculty Mentor Reaction:'}
+                    </span>
                     {REACTION_CONFIG.map((cfg) => {
                       const count = (post.reactions || []).filter(
                         (r) => r.reaction_type === cfg.type || cfg.aliases.includes(r.reaction_type)
@@ -922,26 +1005,49 @@ export const DailyProgressFeed: React.FC = () => {
                         userReaction.reaction_type === cfg.type || cfg.aliases.includes(userReaction.reaction_type)
                       );
 
+                      if (isMentor) {
+                        return (
+                          <button
+                            key={cfg.type}
+                            type="button"
+                            onClick={() => handleReaction(post.id, cfg.type)}
+                            title={`Faculty Feedback: React with ${cfg.label} (${cfg.type})`}
+                            className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                              hasReacted
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            <span className="text-sm leading-none">{cfg.emoji}</span>
+                            <span className="text-[11px] font-medium">{cfg.label}</span>
+                            {count > 0 && (
+                              <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white/70 rounded-full">
+                                {count}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      }
+
+                      // Student view: Read-only mentor feedback badge
                       return (
-                        <button
+                        <div
                           key={cfg.type}
-                          type="button"
-                          onClick={() => handleReaction(post.id, cfg.type)}
-                          title={`${cfg.label} (${cfg.type})`}
-                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                            hasReacted
-                              ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
-                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                          title={count > 0 ? `Faculty mentor reacted: ${cfg.label}` : `Mentor reaction (${cfg.label})`}
+                          className={`px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 select-none ${
+                            count > 0
+                              ? 'bg-amber-50 text-amber-900 border border-amber-200 font-semibold'
+                              : 'bg-slate-50 text-slate-400 opacity-60'
                           }`}
                         >
                           <span className="text-sm leading-none">{cfg.emoji}</span>
-                          <span className="text-[11px] font-medium">{cfg.label}</span>
+                          <span className="text-[11px]">{cfg.label}</span>
                           {count > 0 && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white/70 rounded-full">
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white rounded-full text-amber-800 shadow-2xs">
                               {count}
                             </span>
                           )}
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -953,23 +1059,23 @@ export const DailyProgressFeed: React.FC = () => {
                     className="flex items-center gap-1.5 px-2.5 py-1 text-slate-600 hover:text-navy-950 text-xs font-medium rounded-lg hover:bg-slate-100 transition-colors"
                   >
                     <MessageSquare className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Comments</span>
+                    <span>Mentor Guidance & Replies</span>
                     <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-slate-200 text-slate-800">
                       {post.comments?.length || 0}
                     </span>
                   </button>
                 </div>
 
-                {/* Classmate & Mentor Comments Thread */}
+                {/* 1-on-1 Faculty-Student Comments & Guidance Thread */}
                 {openComments[post.id] && (
                   <div className="pt-3 border-t border-slate-100 space-y-3 bg-slate-50/60 p-3.5 rounded-xl">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                         <MessageSquare className="w-3.5 h-3.5 text-teal-600" />
-                        Discussion & Classmate Encouragement
+                        1-on-1 Faculty Mentor Guidance & Student Replies
                       </span>
                       <span className="text-[10px] text-slate-400">
-                        {post.comments?.length || 0} comment{post.comments?.length === 1 ? '' : 's'}
+                        {post.comments?.length || 0} message{post.comments?.length === 1 ? '' : 's'}
                       </span>
                     </div>
 
@@ -992,10 +1098,10 @@ export const DailyProgressFeed: React.FC = () => {
                                       {comm.user?.full_name?.charAt(0) || 'U'}
                                     </div>
                                   )}
-                                  <span className="font-semibold text-slate-900 text-xs">{comm.user?.full_name || 'Classmate'}</span>
+                                  <span className="font-semibold text-slate-900 text-xs">{comm.user?.full_name || 'User'}</span>
                                   {comm.user?.role === 'mentor' && (
                                     <span className="text-[9px] font-bold uppercase px-1.5 py-0.2 bg-teal-50 text-teal-800 rounded">
-                                      Mentor
+                                      Faculty Mentor
                                     </span>
                                   )}
                                 </div>
@@ -1009,7 +1115,7 @@ export const DailyProgressFeed: React.FC = () => {
                                       type="button"
                                       onClick={() => handleDeleteComment(comm.id)}
                                       className="text-slate-400 hover:text-rose-600 transition-colors"
-                                      title="Delete comment"
+                                      title="Delete message"
                                     >
                                       <Trash2 className="w-3 h-3" />
                                     </button>
@@ -1022,35 +1128,43 @@ export const DailyProgressFeed: React.FC = () => {
                         })}
                       </div>
                     ) : (
-                      <p className="text-[11px] text-slate-400 italic">No comments yet. Be the first classmate or mentor to share encouragement!</p>
+                      <p className="text-[11px] text-slate-400 italic">
+                        {isMentor ? 'No guidance notes added yet. Write feedback or questions for this student below.' : 'No feedback messages from your faculty mentor yet.'}
+                      </p>
                     )}
 
-                    {/* Comment Composer */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <input
-                        type="text"
-                        placeholder="Write a comment or question for your classmate..."
-                        value={commentInputs[post.id] || ''}
-                        onChange={(e) => setCommentInputs({ ...commentInputs, [post.id]: e.target.value })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleSendComment(post.id);
-                        }}
-                        className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => handleSendComment(post.id)}
-                        disabled={!commentInputs[post.id]?.trim() || submittingComment[post.id]}
-                        className="px-3 py-1.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors"
-                      >
-                        {submittingComment[post.id] ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <Send className="w-3 h-3 text-teal-400" />
-                        )}
-                        Comment
-                      </button>
-                    </div>
+                    {/* 1-on-1 Reply Composer */}
+                    {(isMentor || post.student_id === currentUser.id) && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <input
+                          type="text"
+                          placeholder={
+                            isMentor 
+                              ? "Write faculty guidance or questions for this student..." 
+                              : "Reply to your faculty mentor..."
+                          }
+                          value={commentInputs[post.id] || ''}
+                          onChange={(e) => setCommentInputs({ ...commentInputs, [post.id]: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSendComment(post.id);
+                          }}
+                          className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleSendComment(post.id)}
+                          disabled={!commentInputs[post.id]?.trim() || submittingComment[post.id]}
+                          className="px-3 py-1.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors shrink-0"
+                        >
+                          {submittingComment[post.id] ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Send className="w-3 h-3 text-teal-400" />
+                          )}
+                          {isMentor ? 'Send Guidance' : 'Reply'}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
 
