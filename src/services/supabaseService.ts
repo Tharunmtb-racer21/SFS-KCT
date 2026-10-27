@@ -11,6 +11,10 @@ import {
 } from '../types';
 
 export class SupabaseService {
+  public get isConfigured(): boolean {
+    return isSupabaseConfigured;
+  }
+
   private ensureClient() {
     if (!supabase || !isSupabaseConfigured) {
       throw new Error(

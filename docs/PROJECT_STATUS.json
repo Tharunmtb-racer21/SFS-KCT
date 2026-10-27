@@ -20,7 +20,7 @@
     ],
     "storage_bucket": {
       "name": "progress-attachments",
-      "status": "pending_migration_002_run"
+      "status": "verified_live"
     }
   },
   "audit_findings": {
@@ -62,8 +62,8 @@
       "attachments_and_storage": {
         "production_engine": "Supabase Storage bucket 'progress-attachments' with private RLS and signed URLs",
         "demo_engine": "Base64 / data-URI storage in localStorage (max 25MB check)",
-        "verified_live": false,
-        "note": "Requires running 002_storage_setup.sql in SQL editor"
+        "verified_live": true,
+        "note": "002_storage_setup.sql executed and progress-attachments bucket verified live"
       },
       "reactions": {
         "production_engine": "Supabase 'post_reactions' table with unique (post_id, user_id) constraint",
@@ -146,5 +146,5 @@
       "tests_failed": 0
     }
   },
-  "single_next_action": "Run supabase/migrations/002_storage_setup.sql in your Supabase SQL Editor to enable the 'progress-attachments' private storage bucket for file uploads."
+  "single_next_action": "Open http://localhost:5173/ and register your faculty mentor account or test live synchronized student onboarding across devices."
 }

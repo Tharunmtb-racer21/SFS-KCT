@@ -230,21 +230,35 @@ describe('MentorPulse - Core Domain & Security Tests', () => {
   });
 
   describe('6. Production Mode Separation & Backend Guardrails', () => {
-    it('supabaseService explicitly rejects queries when unconfigured, preventing silent fallback', async () => {
+    it('supabaseService enforces strict backend responses and never silently fakes data', async () => {
       const { supabaseService } = await import('../services/supabaseService');
 
-      // Attempting to query Supabase without credentials MUST throw an explicit error
-      await expect(supabaseService.getClassesForMentor('mentor-1')).rejects.toThrowError(
-        'Supabase is not configured'
-      );
+      if (supabaseService.isConfigured) {
+        // In configured mode, queries execute against live PostgreSQL
+        // An invalid UUID format correctly errors from the database engine rather than faking data
+        await expect(supabaseService.getClassesForMentor('invalid-uuid')).rejects.toThrow();
+        // A valid formatted UUID query returns an array without crashing
+        const classes = await supabaseService.getClassesForMentor('00000000-0000-0000-0000-000000000001');
+        expect(Array.isArray(classes)).toBe(true);
+      } else {
+        // In unconfigured mode, attempting to query Supabase MUST throw an explicit error
+        await expect(supabaseService.getClassesForMentor('mentor-1')).rejects.toThrowError(
+          'Supabase is not configured'
+        );
+      }
     });
 
-    it('testConnection accurately returns connected: false when credentials are unconfigured', async () => {
+    it('testConnection accurately reflects live backend connectivity state', async () => {
       const { supabaseService } = await import('../services/supabaseService');
       const conn = await supabaseService.testConnection();
 
-      expect(conn.connected).toBe(false);
-      expect(conn.message).toContain('Supabase is not configured');
+      if (supabaseService.isConfigured) {
+        expect(conn.connected).toBe(true);
+        expect(conn.message).toContain('Connected');
+      } else {
+        expect(conn.connected).toBe(false);
+        expect(conn.message).toContain('Supabase is not configured');
+      }
     });
 
     it('enforces privacy of student contact details by default', () => {
