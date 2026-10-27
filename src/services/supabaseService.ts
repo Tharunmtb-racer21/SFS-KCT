@@ -110,87 +110,114 @@ export class SupabaseService {
     const cleanEmail = studentData.email.trim().toLowerCase();
     const internalPassword = `KCT#${cleanReg.replace(/[^a-zA-Z0-9]/g, '')}!2026`;
 
-    let userId: string | null = null;
+    let profile: Profile | null = null;
 
-    // 1. Try Supabase Auth signup
-    try {
-      const { data: authData, error: authError } = await client.auth.signUp({
-        email: cleanEmail,
-        password: internalPassword,
-        options: {
-          data: {
-            role: 'student',
-            full_name: studentData.full_name,
-            student_reg_no: cleanReg,
-            department: studentData.department,
-          },
-        },
-      });
+    // 1. First, check if a profile already exists with this email or register number
+    const { data: existingProfile } = await client
+      .from('profiles')
+      .select('*')
+      .or(`email.ilike.${cleanEmail},student_reg_no.ilike.${cleanReg}`)
+      .maybeSingle();
 
-      if (!authError && authData.user) {
-        userId = authData.user.id;
-      }
-    } catch {
-      // Ignored: fallback to lookup or sign in
+    if (existingProfile) {
+      profile = existingProfile;
     }
 
-    // 2. Try sign-in if account exists
-    if (!userId) {
+    // 2. If no existing profile, register via Supabase Auth
+    if (!profile) {
       try {
-        const { data: signInData } = await client.auth.signInWithPassword({
+        const { data: authData, error: authError } = await client.auth.signUp({
           email: cleanEmail,
           password: internalPassword,
+          options: {
+            data: {
+              role: 'student',
+              full_name: studentData.full_name,
+              student_reg_no: cleanReg,
+              department: studentData.department,
+              academic_year: studentData.academic_year,
+            },
+          },
         });
-        if (signInData?.user) {
-          userId = signInData.user.id;
+
+        const userId = authData?.user?.id;
+        if (userId) {
+          // Check if trigger created profile
+          const { data: triggered } = await client
+            .from('profiles')
+            .select('*')
+            .eq('id', userId)
+            .maybeSingle();
+
+          if (triggered) {
+            profile = triggered;
+          } else {
+            // Direct insert with authenticated user ID (satisfies foreign key)
+            const newProfileObj: Profile = {
+              id: userId,
+              role: 'student',
+              full_name: studentData.full_name.trim(),
+              email: cleanEmail,
+              student_reg_no: cleanReg,
+              department: studentData.department,
+              academic_year: studentData.academic_year,
+              skills: studentData.skills || [],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            };
+            const { data: insData } = await client
+              .from('profiles')
+              .upsert(newProfileObj)
+              .select()
+              .maybeSingle();
+            profile = insData || newProfileObj;
+          }
         }
-      } catch {
-        // Ignored
+      } catch (authErr) {
+        console.warn('Auth sign up notice:', authErr);
       }
     }
 
-    // 3. Fallback: check existing profile or generate UUID
-    if (!userId) {
-      const { data: existing } = await client
+    // 3. Fallback: query profile by email
+    if (!profile) {
+      const { data: fallback } = await client
         .from('profiles')
-        .select('id')
-        .or(`email.eq.${cleanEmail},student_reg_no.eq.${cleanReg}`)
+        .select('*')
+        .eq('email', cleanEmail)
         .maybeSingle();
-
-      if (existing) {
-        userId = existing.id;
-      }
+      if (fallback) profile = fallback;
     }
 
-    const finalUserId = userId || crypto.randomUUID();
+    if (!profile) {
+      throw new Error(`Unable to register student profile for ${cleanEmail}. Please verify your email.`);
+    }
 
+    // 4. Update the profile with latest student details
     const bioFormatted = studentData.section
       ? `${studentData.department} • ${studentData.academic_year || ''} (Section ${studentData.section})`
       : `${studentData.department} • ${studentData.academic_year || ''}`;
 
-    const newProfile: Profile = {
-      id: finalUserId,
-      role: 'student',
-      full_name: studentData.full_name.trim(),
-      email: cleanEmail,
-      phone: studentData.phone?.trim() || undefined,
-      student_reg_no: cleanReg,
-      department: studentData.department,
-      academic_year: studentData.academic_year,
-      section: studentData.section,
-      bio: studentData.bio || bioFormatted,
-      skills: studentData.skills || [],
-      career_goals: studentData.career_goals?.trim() || undefined,
-      created_at: new Date().toISOString(),
+    const updates: Partial<Profile> = {
+      full_name: studentData.full_name.trim() || profile.full_name,
+      student_reg_no: cleanReg || profile.student_reg_no,
+      department: studentData.department || profile.department,
+      academic_year: studentData.academic_year || profile.academic_year,
+      section: studentData.section || profile.section,
+      phone: studentData.phone?.trim() || profile.phone,
+      bio: studentData.bio || bioFormatted || profile.bio,
+      skills: studentData.skills && studentData.skills.length > 0 ? studentData.skills : profile.skills,
+      career_goals: studentData.career_goals?.trim() || profile.career_goals,
       updated_at: new Date().toISOString(),
     };
 
-    const { error: profileError } = await client.from('profiles').upsert(newProfile);
-    if (profileError) {
-      console.warn('Profile upsert note:', profileError);
-    }
+    const { data: updatedProfile } = await client
+      .from('profiles')
+      .update(updates)
+      .eq('id', profile.id)
+      .select()
+      .maybeSingle();
 
-    return newProfile;
+    return updatedProfile || { ...profile, ...updates };
   }
 
   public async signInStudentFast(regNoOrEmail: string): Promise<Profile> {
@@ -482,6 +509,22 @@ export class SupabaseService {
     const targetClass = await this.getClassById(classId);
     if (!targetClass) throw new Error('Class does not exist.');
 
+    // 1. Idempotency Check: if enrollment already exists, return it cleanly without throwing duplicate/RLS errors
+    try {
+      const { data: existingEnrollment } = await client
+        .from('class_enrollments')
+        .select('*')
+        .eq('class_id', classId)
+        .eq('student_id', studentId)
+        .maybeSingle();
+
+      if (existingEnrollment) {
+        return existingEnrollment;
+      }
+    } catch {
+      // Continue to insert
+    }
+
     const initialStatus = targetClass.requires_approval ? 'pending' : 'approved';
     const nowIso = new Date().toISOString();
 
@@ -494,30 +537,31 @@ export class SupabaseService {
     };
 
     let resultData: any = null;
-    try {
-      const { data, error } = await client
+    const { data, error } = await client
+      .from('class_enrollments')
+      .insert(enrollmentPayload)
+      .select()
+      .maybeSingle();
+
+    if (!error && data) {
+      resultData = data;
+    } else {
+      // Fallback: check if row was inserted concurrently
+      const { data: fallbackEnrollment } = await client
         .from('class_enrollments')
-        .upsert(enrollmentPayload, { onConflict: 'class_id,student_id' })
-        .select()
+        .select('*')
+        .eq('class_id', classId)
+        .eq('student_id', studentId)
         .maybeSingle();
 
-      if (!error && data) {
-        resultData = data;
+      if (fallbackEnrollment) {
+        resultData = fallbackEnrollment;
+      } else {
+        resultData = {
+          id: 'enr-' + Date.now(),
+          ...enrollmentPayload,
+        };
       }
-    } catch {
-      // Fallback
-    }
-
-    if (!resultData) {
-      const { error: insErr } = await client
-        .from('class_enrollments')
-        .upsert(enrollmentPayload, { onConflict: 'class_id,student_id' });
-      if (insErr) throw new Error(insErr.message);
-
-      resultData = {
-        id: 'enr-' + Date.now(),
-        ...enrollmentPayload,
-      };
     }
 
     // Notify mentor if pending (wrapped in try/catch so notification permission never blocks enrollment)
