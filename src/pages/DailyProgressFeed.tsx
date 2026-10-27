@@ -322,7 +322,11 @@ export const DailyProgressFeed: React.FC = () => {
       setTimeout(() => setSuccessMessage(null), 4000);
       await loadPosts();
     } catch (err: any) {
-      setFormError(`Failed to publish: ${err.message}`);
+      if (err.message?.toLowerCase().includes('row-level security') || err.message?.toLowerCase().includes('violates')) {
+        setFormError('Database Permission: Migration 006 is required in Supabase. Please execute 006_fix_all_rls_errors.sql in your Supabase SQL Editor to enable direct publishing.');
+      } else {
+        setFormError(`Failed to publish: ${err.message}`);
+      }
     } finally {
       setIsSubmitting(false);
     }
