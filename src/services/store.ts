@@ -363,6 +363,32 @@ export class AppDataStore {
     return this.enrollments[index];
   }
 
+  public approveAllPendingEnrollments(classId: string, mentorId: string): number {
+    const pending = this.enrollments.filter((e) => e.class_id === classId && e.status === 'pending');
+    if (pending.length === 0) return 0;
+    const now = new Date().toISOString();
+    const targetClass = this.classes.find((c) => c.id === classId);
+
+    pending.forEach((e) => {
+      e.status = 'approved';
+      e.reviewed_at = now;
+      e.reviewed_by = mentorId;
+      this.notifications.push({
+        id: 'notif-' + Math.random().toString(36).slice(2, 9),
+        user_id: e.student_id,
+        title: 'Enrollment Approved!',
+        message: `Your request to join ${targetClass?.name || 'the class'} has been approved by your mentor.`,
+        link: '/student/feed',
+        read: false,
+        created_at: now,
+      });
+    });
+
+    saveToStorage(STORAGE_KEYS.ENROLLMENTS, this.enrollments);
+    saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+    return pending.length;
+  }
+
   // --- Profiles & Students ---
   public getProfile(userId: string): Profile | null {
     return this.profiles.find((p) => p.id === userId) || null;

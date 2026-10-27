@@ -610,6 +610,45 @@ export class SupabaseService {
     return data;
   }
 
+  public async approveAllPendingEnrollments(classId: string, mentorId: string): Promise<number> {
+    const client = this.ensureClient();
+    const { data: pendingList, error: fetchErr } = await client
+      .from('class_enrollments')
+      .select('id, student_id, class:classes(name)')
+      .eq('class_id', classId)
+      .eq('status', 'pending');
+
+    if (fetchErr) throw new Error(fetchErr.message);
+    if (!pendingList || pendingList.length === 0) return 0;
+
+    const ids = pendingList.map((e: any) => e.id);
+    const { error: updateErr } = await client
+      .from('class_enrollments')
+      .update({
+        status: 'approved',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: mentorId,
+      })
+      .in('id', ids);
+
+    if (updateErr) throw new Error(updateErr.message);
+
+    // Send notifications in batch
+    try {
+      const notifications = pendingList.map((e: any) => ({
+        user_id: e.student_id,
+        title: 'Enrollment Approved!',
+        message: `Your enrollment for ${e.class?.name || 'the class'} was approved by your mentor.`,
+        link: '/student/feed',
+      }));
+      await client.from('notifications').insert(notifications);
+    } catch (notifErr) {
+      console.warn('Non-fatal: Failed to send batch approval notifications:', notifErr);
+    }
+
+    return pendingList.length;
+  }
+
   // --- Daily Posts ---
   public async getDailyPostsForClass(classId: string): Promise<DailyPost[]> {
     const client = this.ensureClient();

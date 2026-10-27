@@ -7,6 +7,7 @@ import {
   Users, 
   Search, 
   Check, 
+  CheckCheck,
   X, 
   Clock, 
   ExternalLink, 
@@ -103,6 +104,31 @@ export const StudentDirectory: React.FC = () => {
     }
   };
 
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
+
+  const handleApproveAll = async () => {
+    if (pendingList.length === 0) return;
+    const confirmMsg = `Are you sure you want to approve all ${pendingList.length} pending student registration(s) for ${activeClass.name}?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setIsApprovingAll(true);
+    setErrorMsg(null);
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.approveAllPendingEnrollments(activeClass.id, currentUser.id);
+      } else {
+        appStore.approveAllPendingEnrollments(activeClass.id, currentUser.id);
+      }
+      await loadEnrollments();
+      await refreshData();
+    } catch (err: any) {
+      console.error('Failed to approve all students:', err);
+      setErrorMsg(err.message || 'Failed to approve all pending students.');
+    } finally {
+      setIsApprovingAll(false);
+    }
+  };
+
   const currentList = activeTab === 'approved' ? approvedList : pendingList;
 
   const filteredList = currentList.filter(e => {
@@ -133,31 +159,49 @@ export const StudentDirectory: React.FC = () => {
           <h1 className="text-2xl font-bold text-navy-950 mt-1">Student Directory & Approvals</h1>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center bg-slate-100 p-1 rounded-xl">
-          <button
-            onClick={() => setActiveTab('approved')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              activeTab === 'approved'
-                ? 'bg-white text-navy-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            Enrolled Students ({approvedList.length})
-          </button>
+        {/* Actions & Tab Switcher */}
+        <div className="flex flex-wrap items-center gap-2">
+          {pendingList.length > 0 && (
+            <button
+              onClick={handleApproveAll}
+              disabled={isApprovingAll}
+              className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+              title={`Approve all ${pendingList.length} pending student registrations`}
+            >
+              {isApprovingAll ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <CheckCheck className="w-3.5 h-3.5" />
+              )}
+              Approve All ({pendingList.length})
+            </button>
+          )}
 
-          <button
-            onClick={() => setActiveTab('pending')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-              activeTab === 'pending'
-                ? 'bg-white text-amber-900 shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-            Pending Approvals ({pendingList.length})
-          </button>
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('approved')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'approved'
+                  ? 'bg-white text-navy-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              Enrolled Students ({approvedList.length})
+            </button>
+
+            <button
+              onClick={() => setActiveTab('pending')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'pending'
+                  ? 'bg-white text-amber-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 text-amber-500" />
+              Pending Approvals ({pendingList.length})
+            </button>
+          </div>
         </div>
       </div>
 
@@ -185,19 +229,67 @@ export const StudentDirectory: React.FC = () => {
         />
       </div>
 
-      {/* Pending Banner Alert if any pending items */}
+      {/* Pending Banner Alert if on approved tab */}
       {pendingList.length > 0 && activeTab === 'approved' && (
-        <div 
-          onClick={() => setActiveTab('pending')}
-          className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center justify-between cursor-pointer hover:bg-amber-100/70 transition-colors"
-        >
+        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-amber-600 shrink-0" />
             <span>
               <strong>{pendingList.length} student registration(s)</strong> are waiting for your approval before they can access this class feed.
             </span>
           </div>
-          <span className="font-semibold text-amber-800 underline">Review Now &rarr;</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleApproveAll}
+              disabled={isApprovingAll}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1.5 transition-all shadow-2xs"
+            >
+              {isApprovingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCheck className="w-3.5 h-3.5" />}
+              Approve All ({pendingList.length})
+            </button>
+            <button
+              onClick={() => setActiveTab('pending')}
+              className="font-semibold text-amber-800 underline hover:text-amber-950 px-2 py-1"
+            >
+              Review List &rarr;
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Prominent Bulk Action Banner when on pending tab */}
+      {pendingList.length > 0 && activeTab === 'pending' && (
+        <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border border-emerald-200 text-emerald-950 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <CheckCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-emerald-950">
+                Bulk Action: {pendingList.length} Student Registration{pendingList.length > 1 ? 's' : ''} Ready for Approval
+              </h2>
+              <p className="text-xs text-emerald-700 mt-0.5">
+                Approve all pending students in 1 click to instantly grant access to {activeClass.name} progress feeds and submissions.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleApproveAll}
+            disabled={isApprovingAll}
+            className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-sm transition-all disabled:opacity-50 cursor-pointer shrink-0"
+          >
+            {isApprovingAll ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                Approving {pendingList.length} Students...
+              </>
+            ) : (
+              <>
+                <CheckCheck className="w-4 h-4" />
+                Approve All ({pendingList.length}) Students
+              </>
+            )}
+          </button>
         </div>
       )}
 
