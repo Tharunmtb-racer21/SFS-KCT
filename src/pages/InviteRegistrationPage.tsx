@@ -222,29 +222,36 @@ export const InviteRegistrationPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 py-8 sm:py-12">
       <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xl max-w-xl w-full overflow-hidden">
-        {/* Banner */}
-        <div className="bg-gradient-to-r from-navy-950 via-navy-900 to-navy-950 text-white p-6 sm:p-8 border-b border-navy-800">
-          <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-teal-300 bg-teal-900/60 px-2.5 py-0.5 rounded-full border border-teal-500/30">
-              MentorPulse by THARUN N E
-            </span>
-            <span className="text-xs text-slate-400">&bull;</span>
-            <span className="text-xs text-teal-200 font-medium">SFS @ Kumaraguru College of Technology</span>
-            <span className="text-xs text-slate-400">&bull;</span>
-            <span className="text-xs text-slate-300 font-medium">{targetClass.department}</span>
-          </div>
-
-          <h1 className="text-2xl font-bold tracking-tight text-white">{targetClass.name}</h1>
-          <p className="text-xs text-slate-300 mt-2 leading-relaxed">{targetClass.description}</p>
-
-          <div className="mt-4 pt-4 border-t border-navy-800/80 flex items-center justify-between text-xs text-slate-300 flex-wrap gap-2">
-            <div className="flex items-center gap-1.5">
-              <Calendar className="w-3.5 h-3.5 text-teal-400" />
-              <span>{targetClass.academic_year} &bull; {targetClass.semester}</span>
+        {/* Banner with KCT Campus Architecture */}
+        <div className="relative bg-gradient-to-r from-navy-950 via-navy-900 to-navy-950 text-white p-6 sm:p-8 border-b border-navy-800 overflow-hidden">
+          <div 
+            className="absolute inset-0 bg-cover bg-top pointer-events-none opacity-20 mix-blend-luminosity"
+            style={{ backgroundImage: `url('/assets/kct-campus.png')` }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-navy-950/75 via-navy-950/85 to-navy-950 pointer-events-none" />
+          <div className="relative z-10">
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-teal-300 bg-teal-900/60 px-2.5 py-0.5 rounded-full border border-teal-500/30">
+                MentorPulse by THARUN N E
+              </span>
+              <span className="text-xs text-slate-400">&bull;</span>
+              <span className="text-xs text-teal-200 font-medium">SFS @ Kumaraguru College of Technology</span>
+              <span className="text-xs text-slate-400">&bull;</span>
+              <span className="text-xs text-slate-300 font-medium">{targetClass.department}</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <GraduationCap className="w-3.5 h-3.5 text-teal-400" />
-              <span>Faculty Mentor: <strong>{mentor?.full_name || 'Assigned Mentor'}</strong></span>
+
+            <h1 className="text-2xl font-bold tracking-tight text-white">{targetClass.name}</h1>
+            <p className="text-xs text-slate-300 mt-2 leading-relaxed">{targetClass.description}</p>
+
+            <div className="mt-4 pt-4 border-t border-navy-800/80 flex items-center justify-between text-xs text-slate-300 flex-wrap gap-2">
+              <div className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-teal-400" />
+                <span>{targetClass.academic_year} &bull; {targetClass.semester}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <GraduationCap className="w-3.5 h-3.5 text-teal-400" />
+                <span>Faculty Mentor: <strong>{mentor?.full_name || 'Assigned Mentor'}</strong></span>
+              </div>
             </div>
           </div>
         </div>

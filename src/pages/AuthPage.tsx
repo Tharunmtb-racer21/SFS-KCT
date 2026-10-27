@@ -144,17 +144,25 @@ export const AuthPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 py-8 sm:py-12">
       <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 bg-white rounded-3xl border border-slate-200/90 shadow-2xl overflow-hidden">
-        {/* Left Branding & Quick Persona Testing Panel */}
-        <div className="bg-navy-950 text-white p-8 flex flex-col justify-between border-b md:border-b-0 md:border-r border-navy-800">
-          <div>
+        {/* Left Branding & Quick Persona Testing Panel with KCT Campus Architecture */}
+        <div className="relative bg-navy-950 text-white p-6 sm:p-8 flex flex-col justify-between border-b md:border-b-0 md:border-r border-navy-800 overflow-hidden">
+          {/* Authentic KCT Campus Dome Architecture Background Texture */}
+          <div 
+            className="absolute inset-0 bg-cover bg-top pointer-events-none opacity-20 mix-blend-luminosity scale-105"
+            style={{ backgroundImage: `url('/assets/kct-campus.png')` }}
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-navy-950/80 via-navy-950/90 to-navy-950 pointer-events-none" />
+
+          <div className="relative z-10 space-y-4">
             {/* Institution Badge */}
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-teal-500/10 border border-teal-500/30 text-teal-300 text-[11px] font-semibold mb-5 tracking-wide">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-teal-500/15 border border-teal-500/30 text-teal-300 text-[11px] font-semibold tracking-wide backdrop-blur-xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
               <span>SFS @ Kumaraguru College of Technology</span>
             </div>
 
             {/* Logo & Creator */}
-            <div className="flex items-center gap-3.5 mb-6">
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500 to-teal-700 flex items-center justify-center shadow-lg shadow-teal-950/60">
+            <div className="flex items-center gap-3.5 pt-1">
+              <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-teal-500 to-teal-700 flex items-center justify-center shadow-lg shadow-teal-950/60 border border-teal-400/30 shrink-0">
                 <GraduationCap className="w-6 h-6 text-white" />
               </div>
               <div>
@@ -167,15 +175,31 @@ export const AuthPage: React.FC = () => {
               </div>
             </div>
 
-            <h2 className="text-base font-bold text-white tracking-tight leading-snug">
-              Academic mentoring & student progress tracking platform.
-            </h2>
-            <p className="text-xs text-slate-300 mt-2 leading-relaxed">
-              Enforcing independent department cohorts, unguessable registration tokens, and verifiable progress evaluation records.
-            </p>
+            {/* Iconic KCT Campus Temple Dome Visual Card */}
+            <div className="rounded-2xl overflow-hidden border border-white/10 shadow-lg relative group">
+              <img 
+                src="/assets/kct-campus.png" 
+                alt="Kumaraguru College of Technology" 
+                className="w-full h-32 object-cover object-center group-hover:scale-105 transition-transform duration-500"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-navy-950 via-navy-950/30 to-transparent flex items-end p-2.5">
+                <span className="text-[10px] font-bold text-teal-300 tracking-wider uppercase">
+                  Kumaraguru College of Technology
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <h2 className="text-base font-bold text-white tracking-tight leading-snug">
+                Academic mentoring & student progress tracking platform.
+              </h2>
+              <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                Enforcing independent department cohorts, unguessable registration tokens, and verifiable progress evaluation records.
+              </p>
+            </div>
 
             {/* Quick Demo Personas Box */}
-            <div className="mt-6 p-4 rounded-2xl bg-navy-900 border border-navy-800 space-y-3">
+            <div className="mt-4 p-3.5 rounded-2xl bg-navy-900/90 border border-navy-800 space-y-2.5 backdrop-blur-xs">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-xs font-bold text-teal-300 uppercase tracking-wider">
                   <Sparkles className="w-3.5 h-3.5" />
