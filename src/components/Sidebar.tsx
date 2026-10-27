@@ -196,13 +196,15 @@ export const Sidebar: React.FC = () => {
       </nav>
 
       {/* Footer Info */}
-      <div className="p-4 border-t border-slate-100 text-[11px] text-slate-500 space-y-1">
-        <p className="font-bold text-slate-800">MentorPulse <span className="text-teal-700 font-semibold">by THARUN N E</span></p>
-        <p className="text-teal-800 font-medium text-[10px]">SFS @ Kumaraguru College of Technology</p>
-        <div className="pt-1.5 mt-1 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400">
-          <span>Academic Hub</span>
-          <span className="font-semibold text-teal-700">Dev by THARUN N E</span>
+      <div className="p-4 border-t border-slate-100 text-[11px] text-slate-500 space-y-1.5">
+        <div className="flex items-center gap-2">
+          <img src="/assets/tharun.jpg" alt="THARUN N E" className="w-6 h-6 rounded-full object-cover border border-teal-500/50 shadow-xs" />
+          <div>
+            <p className="font-bold text-slate-800 text-xs leading-none">MentorPulse</p>
+            <p className="text-[10px] text-teal-700 font-semibold">by THARUN N E</p>
+          </div>
         </div>
+        <p className="text-teal-800 font-medium text-[10px]">SFS @ Kumaraguru College of Technology</p>
       </div>
     </aside>
   );

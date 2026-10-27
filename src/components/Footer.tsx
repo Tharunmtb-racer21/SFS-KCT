@@ -21,8 +21,8 @@ export const Footer: React.FC = () => {
         </div>
 
         <div className="flex flex-col sm:items-end text-center sm:text-right gap-1">
-          <div className="text-white font-semibold flex items-center gap-1.5 justify-center sm:justify-end">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <div className="text-white font-semibold flex items-center gap-2 justify-center sm:justify-end">
+            <img src="/assets/tharun.jpg" alt="THARUN N E" className="w-5 h-5 rounded-full object-cover border border-teal-400/60 shadow-xs" />
             <span>Developed by</span>
             <span className="text-teal-300 font-bold tracking-wide">THARUN N E</span>
           </div>

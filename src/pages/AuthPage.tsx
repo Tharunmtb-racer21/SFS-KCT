@@ -225,8 +225,8 @@ export const AuthPage: React.FC = () => {
           </div>
 
           <div className="mt-8 pt-4 border-t border-navy-800/80 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse"></span>
+            <div className="flex items-center gap-2.5">
+              <img src="/assets/tharun.jpg" alt="THARUN N E" className="w-6 h-6 rounded-full object-cover border border-teal-400/60 shadow-xs" />
               <span className="text-slate-300 font-medium">
                 Developed by <strong className="text-teal-300 font-semibold tracking-wide">THARUN N E</strong>
               </span>
