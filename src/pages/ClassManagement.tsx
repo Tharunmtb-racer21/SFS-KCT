@@ -16,6 +16,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import { getInviteUrl } from '../utils/url';
 
 export const ClassManagement: React.FC = () => {
   const { currentUser, classes, refreshData, setActiveClassId, activeMode } = useApp();
@@ -84,14 +85,14 @@ export const ClassManagement: React.FC = () => {
   };
 
   const handleCopyLink = (classItem: any) => {
-    const url = `${window.location.origin}/invite/${classItem.invite_code}`;
+    const url = getInviteUrl(classItem.invite_code);
     navigator.clipboard.writeText(url);
     setCopiedClassId(classItem.id);
     setTimeout(() => setCopiedClassId(null), 2500);
   };
 
   const handleWhatsAppShare = (classItem: any) => {
-    const url = `${window.location.origin}/invite/${classItem.invite_code}`;
+    const url = getInviteUrl(classItem.invite_code);
     const text = encodeURIComponent(
       `Hello students! Please register for our class group "${classItem.name}" (${classItem.department}) on MentorPulse by THARUN N E (SFS @ Kumaraguru College of Technology): ${url}`
     );
@@ -99,7 +100,7 @@ export const ClassManagement: React.FC = () => {
   };
 
   const handleTeamsShare = (classItem: any) => {
-    const url = `${window.location.origin}/invite/${classItem.invite_code}`;
+    const url = getInviteUrl(classItem.invite_code);
     const text = encodeURIComponent(
       `Hello students! Please register for our class group "${classItem.name}" (${classItem.department}) on MentorPulse by THARUN N E (SFS @ Kumaraguru College of Technology).`
     );
@@ -161,7 +162,7 @@ export const ClassManagement: React.FC = () => {
       {/* Class Cards Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {classes.map((c) => {
-          const inviteUrl = `${window.location.origin}/invite/${c.invite_code}`;
+          const inviteUrl = getInviteUrl(c.invite_code);
           const isCopied = copiedClassId === c.id;
 
           return (

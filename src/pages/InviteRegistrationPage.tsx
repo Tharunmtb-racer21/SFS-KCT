@@ -131,18 +131,12 @@ export const InviteRegistrationPage: React.FC = () => {
         const enrollment = await supabaseService.requestEnrollment(targetClass.id, currentUser.id);
         await refreshData();
         setActiveClassId(targetClass.id);
-        setSuccessInfo({
-          status: enrollment.status,
-          className: targetClass.name,
-        });
+        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
       } else {
         const enrollment = appStore.requestEnrollment(targetClass.id, currentUser.id);
         refreshData();
         setActiveClassId(targetClass.id);
-        setSuccessInfo({
-          status: enrollment.status,
-          className: targetClass.name,
-        });
+        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
       }
     } catch (err: any) {
       setFormError(err.message || 'Enrollment request failed.');
@@ -191,10 +185,7 @@ export const InviteRegistrationPage: React.FC = () => {
         const enrollment = await supabaseService.requestEnrollment(targetClass.id, newStudent.id);
         await refreshData();
         setActiveClassId(targetClass.id);
-        setSuccessInfo({
-          status: enrollment.status,
-          className: targetClass.name,
-        });
+        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
       } else {
         const newStudent = appStore.registerUser({
           id: 'student-' + Date.now(),
@@ -214,10 +205,7 @@ export const InviteRegistrationPage: React.FC = () => {
         const enrollment = appStore.requestEnrollment(targetClass.id, newStudent.id);
         refreshData();
         setActiveClassId(targetClass.id);
-        setSuccessInfo({
-          status: enrollment.status,
-          className: targetClass.name,
-        });
+        navigate(enrollment.status === 'approved' ? '/student/feed' : '/student/classes');
       }
     } catch (err: any) {
       setFormError(err.message || 'Registration failed.');

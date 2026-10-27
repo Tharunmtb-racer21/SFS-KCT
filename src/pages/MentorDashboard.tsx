@@ -19,6 +19,7 @@ import {
   Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { getInviteUrl } from '../utils/url';
 
 export const MentorDashboard: React.FC = () => {
   const { currentUser, activeClass, classes, setActiveClassId, activeMode } = useApp();
@@ -108,7 +109,7 @@ export const MentorDashboard: React.FC = () => {
     return studentPosts.length === 0 || !hasWeeklyReport;
   });
 
-  const inviteUrl = `${window.location.origin}/invite/${activeClass.invite_code}`;
+  const inviteUrl = getInviteUrl(activeClass.invite_code);
 
   const handleCopyInviteLink = () => {
     navigator.clipboard.writeText(inviteUrl);
