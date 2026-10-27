@@ -10,11 +10,13 @@ import {
   Lock, 
   ArrowRight, 
   Database,
-  Info
+  Info,
+  CheckCircle2,
+  CalendarCheck,
+  ShieldCheck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ProfilePhotoPicker } from '../components/ProfilePhotoPicker';
-import { Footer } from '../components/Footer';
 
 export const AuthPage: React.FC = () => {
   const { login, switchUser, activeMode, isConfigured } = useApp();
@@ -131,16 +133,6 @@ export const AuthPage: React.FC = () => {
     }
   };
 
-  const handleQuickDemoLogin = (userId: string) => {
-    switchUser(userId);
-    const user = appStore.getCurrentUser();
-    if (user?.role === 'mentor') {
-      navigate('/mentor/dashboard');
-    } else {
-      navigate('/student/feed');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 py-8 sm:py-12">
       <div className="max-w-4xl w-full grid grid-cols-1 md:grid-cols-2 bg-white rounded-3xl border border-slate-200/90 shadow-2xl overflow-hidden">
@@ -198,77 +190,36 @@ export const AuthPage: React.FC = () => {
               </p>
             </div>
 
-            {/* Quick Demo Personas Box */}
-            <div className="mt-4 p-3.5 rounded-2xl bg-navy-900/90 border border-navy-800 space-y-2.5 backdrop-blur-xs">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-xs font-bold text-teal-300 uppercase tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  1-Click Test Personas
+            {/* Academic Platform Pillars */}
+            <div className="space-y-2.5 pt-1">
+              <div className="flex items-start gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0 mt-0.5">
+                  <CheckCircle2 className="w-4 h-4 text-teal-400" />
                 </div>
-                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-mono font-bold">
-                  Demo Mode
-                </span>
+                <div>
+                  <h3 className="text-xs font-bold text-white">Daily Progress Stream</h3>
+                  <p className="text-[11px] text-slate-300">Continuous check-ins, peer reactions, and blocker guidance.</p>
+                </div>
               </div>
-              <p className="text-[11px] text-slate-400">
-                Instantly switch roles to test isolated faculty mentor vs student views:
-              </p>
 
-              <div className="space-y-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('mentor-1')}
-                  className="w-full text-left p-2.5 rounded-xl bg-navy-800/80 hover:bg-navy-800 border border-navy-700 text-xs transition-colors flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-semibold text-slate-200">Dr. A. Ramanathan</div>
-                    <div className="text-[11px] text-slate-400">Faculty Mentor (Manages ECE-A & MECH-B)</div>
-                  </div>
-                  <span className="text-[10px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-0.5 rounded font-bold">
-                    Mentor
-                  </span>
-                </button>
+              <div className="flex items-start gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0 mt-0.5">
+                  <CalendarCheck className="w-4 h-4 text-teal-400" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-white">Weekly Formal Milestones</h3>
+                  <p className="text-[11px] text-slate-300">Structured report evaluations, hour auditing, and mentor grading.</p>
+                </div>
+              </div>
 
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('student-ece-1')}
-                  className="w-full text-left p-2.5 rounded-xl bg-navy-800/80 hover:bg-navy-800 border border-navy-700 text-xs transition-colors flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-semibold text-slate-200">Kavitha Sundaram</div>
-                    <div className="text-[11px] text-slate-400">ECE Student (Active enrolled & posts)</div>
-                  </div>
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded font-bold">
-                    Student
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('student-ece-3')}
-                  className="w-full text-left p-2.5 rounded-xl bg-navy-800/80 hover:bg-navy-800 border border-navy-700 text-xs transition-colors flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-semibold text-slate-200">Deepak Krishnan</div>
-                    <div className="text-[11px] text-slate-400">ECE Student (Pending Approval Queue)</div>
-                  </div>
-                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded font-bold">
-                    Pending
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin('student-mech-1')}
-                  className="w-full text-left p-2.5 rounded-xl bg-navy-800/80 hover:bg-navy-800 border border-navy-700 text-xs transition-colors flex items-center justify-between"
-                >
-                  <div>
-                    <div className="font-semibold text-slate-200">Sanjay Karthik</div>
-                    <div className="text-[11px] text-slate-400">Mech Student (Mech-B class)</div>
-                  </div>
-                  <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded font-bold">
-                    Mech
-                  </span>
-                </button>
+              <div className="flex items-start gap-3 p-3 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xs">
+                <div className="w-8 h-8 rounded-xl bg-teal-500/20 text-teal-300 flex items-center justify-center shrink-0 mt-0.5">
+                  <ShieldCheck className="w-4 h-4 text-teal-400" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-white">Department Isolation</h3>
+                  <p className="text-[11px] text-slate-300">PostgreSQL RLS enforcing private faculty-student boundaries.</p>
+                </div>
               </div>
             </div>
           </div>
