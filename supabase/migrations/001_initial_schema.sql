@@ -177,6 +177,43 @@ CREATE TABLE IF NOT EXISTS public.notifications (
 CREATE INDEX IF NOT EXISTS idx_notifications_user ON public.notifications(user_id, read);
 
 -- =============================================================================
+-- AUTOMATIC PROFILE CREATION TRIGGER FOR SUPABASE AUTH
+-- =============================================================================
+
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+    INSERT INTO public.profiles (
+        id, 
+        role, 
+        full_name, 
+        email, 
+        student_reg_no, 
+        department, 
+        academic_year
+    )
+    VALUES (
+        NEW.id,
+        COALESCE(NEW.raw_user_meta_data->>'role', 'student'),
+        COALESCE(NEW.raw_user_meta_data->>'full_name', SPLIT_PART(NEW.email, '@', 1)),
+        NEW.email,
+        NEW.raw_user_meta_data->>'student_reg_no',
+        NEW.raw_user_meta_data->>'department',
+        NEW.raw_user_meta_data->>'academic_year'
+    )
+    ON CONFLICT (id) DO UPDATE SET
+        email = EXCLUDED.email,
+        updated_at = now();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+    AFTER INSERT ON auth.users
+    FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- =============================================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- =============================================================================
 
@@ -216,11 +253,10 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- PROFILES POLICIES:
 -- 1. Users can view their own profile
--- 2. Mentors can view profiles of students enrolled in their classes
--- 3. Students can view profile of fellow approved students and their mentors in the same class
 CREATE POLICY "View own profile" ON public.profiles
     FOR SELECT USING (auth.uid() = id);
 
+-- 2. Mentors can view profiles of students enrolled or pending in their classes
 CREATE POLICY "Mentors can view enrolled students" ON public.profiles
     FOR SELECT USING (
         EXISTS (
@@ -230,6 +266,7 @@ CREATE POLICY "Mentors can view enrolled students" ON public.profiles
         )
     );
 
+-- 3. Students can view profile of fellow approved students in the same class
 CREATE POLICY "Classmates can view approved peer profile basics" ON public.profiles
     FOR SELECT USING (
         EXISTS (
@@ -237,6 +274,22 @@ CREATE POLICY "Classmates can view approved peer profile basics" ON public.profi
             JOIN public.class_enrollments ce2 ON ce1.class_id = ce2.class_id
             WHERE ce1.student_id = auth.uid() AND ce1.status = 'approved'
               AND ce2.student_id = profiles.id AND ce2.status = 'approved'
+        )
+    );
+
+-- 4. Students can view profile of their class mentor
+CREATE POLICY "Students can view class mentor profile" ON public.profiles
+    FOR SELECT USING (
+        EXISTS (
+            SELECT 1 FROM public.classes c
+            WHERE c.mentor_id = profiles.id
+              AND (
+                c.invite_active = true 
+                OR EXISTS (
+                    SELECT 1 FROM public.class_enrollments ce
+                    WHERE ce.class_id = c.id AND ce.student_id = auth.uid()
+                )
+              )
         )
     );
 
@@ -260,7 +313,7 @@ CREATE POLICY "Mentors update own classes" ON public.classes
 CREATE POLICY "Mentors delete own classes" ON public.classes
     FOR DELETE USING (mentor_id = auth.uid());
 
--- Students can see classes they are enrolled in or approved for
+-- Students can see classes they are enrolled in or requested enrollment for
 CREATE POLICY "Students see enrolled classes" ON public.classes
     FOR SELECT USING (
         EXISTS (
@@ -269,7 +322,7 @@ CREATE POLICY "Students see enrolled classes" ON public.classes
         )
     );
 
--- Any authenticated user can view class summary by invite code for enrollment preview
+-- Any authenticated or anonymous user can view active classes by invite code for preview
 CREATE POLICY "Public invite lookup" ON public.classes
     FOR SELECT USING (invite_active = true);
 
@@ -301,19 +354,20 @@ CREATE POLICY "Students insert own posts" ON public.daily_posts
         student_id = auth.uid() AND public.is_approved_student_in_class(class_id)
     );
 
--- Students can update/delete their own posts
+-- Students can update their own posts
 CREATE POLICY "Students update own posts" ON public.daily_posts
     FOR UPDATE USING (student_id = auth.uid());
 
+-- Students can delete their own posts, and mentors can moderate/delete posts in their class
 CREATE POLICY "Students delete own posts" ON public.daily_posts
-    FOR DELETE USING (student_id = auth.uid());
+    FOR DELETE USING (student_id = auth.uid() OR public.is_mentor_of_class(class_id));
 
 -- WEEKLY REPORTS POLICIES:
 -- Mentors view weekly reports for their classes
 CREATE POLICY "Mentors view class weekly reports" ON public.weekly_reports
     FOR SELECT USING (public.is_mentor_of_class(class_id));
 
--- Students view their own weekly reports
+-- Students view only their own weekly reports (peers cannot see each other's reports)
 CREATE POLICY "Students view own weekly reports" ON public.weekly_reports
     FOR SELECT USING (student_id = auth.uid());
 
@@ -366,5 +420,14 @@ CREATE POLICY "Students view feedback on their reports" ON public.weekly_report_
     );
 
 -- NOTIFICATIONS POLICIES:
-CREATE POLICY "Users manage own notifications" ON public.notifications
-    FOR ALL USING (user_id = auth.uid());
+CREATE POLICY "Authenticated users insert notifications" ON public.notifications
+    FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "Users read own notifications" ON public.notifications
+    FOR SELECT USING (user_id = auth.uid());
+
+CREATE POLICY "Users update own notifications" ON public.notifications
+    FOR UPDATE USING (user_id = auth.uid());
+
+CREATE POLICY "Users delete own notifications" ON public.notifications
+    FOR DELETE USING (user_id = auth.uid());

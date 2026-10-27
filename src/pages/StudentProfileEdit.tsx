@@ -1,21 +1,18 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
 import { 
-  UserCheck, 
   Save, 
   Mail, 
   Phone, 
-  GraduationCap, 
-  Award, 
-  Target, 
-  Heart, 
   Check, 
-  ShieldAlert 
+  ShieldAlert,
+  Loader2
 } from 'lucide-react';
 
 export const StudentProfileEdit: React.FC = () => {
-  const { currentUser, refreshData } = useApp();
+  const { currentUser, refreshData, activeMode } = useApp();
 
   const [fullName, setFullName] = useState(currentUser?.full_name || '');
   const [regNo, setRegNo] = useState(currentUser?.student_reg_no || '');
@@ -29,12 +26,13 @@ export const StudentProfileEdit: React.FC = () => {
 
   const [savedSuccess, setSavedSuccess] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   if (!currentUser) {
     return <div className="p-8 text-center text-slate-500">Please sign in to edit your profile.</div>;
   }
 
-  const handleSave = (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim()) {
       setErrorMsg('Full name is required.');
@@ -46,8 +44,11 @@ export const StudentProfileEdit: React.FC = () => {
       .map((s) => s.trim())
       .filter(Boolean);
 
+    setIsSaving(true);
+    setErrorMsg('');
+
     try {
-      appStore.updateProfile(currentUser.id, {
+      const payload = {
         full_name: fullName.trim(),
         student_reg_no: regNo.trim(),
         department: department.trim(),
@@ -57,14 +58,21 @@ export const StudentProfileEdit: React.FC = () => {
         skills,
         career_goals: careerGoals.trim(),
         hobbies: hobbies.trim(),
-      });
+      };
 
-      refreshData();
+      if (activeMode === 'production') {
+        await supabaseService.updateProfile(currentUser.id, payload);
+      } else {
+        appStore.updateProfile(currentUser.id, payload);
+      }
+
+      await refreshData();
       setSavedSuccess(true);
-      setErrorMsg('');
       setTimeout(() => setSavedSuccess(false), 3000);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to update profile.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -87,7 +95,7 @@ export const StudentProfileEdit: React.FC = () => {
           )}
 
           {errorMsg && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
               {errorMsg}
             </div>
           )}
@@ -246,10 +254,20 @@ export const StudentProfileEdit: React.FC = () => {
           <div className="pt-4 border-t border-slate-100 flex justify-end">
             <button
               type="submit"
-              className="px-5 py-2.5 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
+              disabled={isSaving}
+              className="px-5 py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-2 transition-colors shadow-xs"
             >
-              <Save className="w-4 h-4 text-teal-400" />
-              Save Profile Changes
+              {isSaving ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 text-teal-400" />
+                  Save Profile Changes
+                </>
+              )}
             </button>
           </div>
         </form>

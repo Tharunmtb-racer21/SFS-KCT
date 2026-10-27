@@ -228,4 +228,34 @@ describe('MentorPulse - Core Domain & Security Tests', () => {
       expect(csv).toContain('Rahul Varma');
     });
   });
+
+  describe('6. Production Mode Separation & Backend Guardrails', () => {
+    it('supabaseService explicitly rejects queries when unconfigured, preventing silent fallback', async () => {
+      const { supabaseService } = await import('../services/supabaseService');
+
+      // Attempting to query Supabase without credentials MUST throw an explicit error
+      await expect(supabaseService.getClassesForMentor('mentor-1')).rejects.toThrowError(
+        'Supabase is not configured'
+      );
+    });
+
+    it('testConnection accurately returns connected: false when credentials are unconfigured', async () => {
+      const { supabaseService } = await import('../services/supabaseService');
+      const conn = await supabaseService.testConnection();
+
+      expect(conn.connected).toBe(false);
+      expect(conn.message).toContain('Supabase is not configured');
+    });
+
+    it('enforces privacy of student contact details by default', () => {
+      const kavitha = store.getProfile('student-ece-1');
+      expect(kavitha?.phone).toBeDefined();
+
+      // Only mentors should receive phone number when inspecting enrolled student
+      const mentorEnrollments = store.getEnrollmentsForClass('class-ece-2024');
+      const studentEntry = mentorEnrollments.find(e => e.student_id === 'student-ece-1');
+      expect(studentEntry?.student.phone).toBe('+91 98421 54321');
+    });
+  });
 });
+

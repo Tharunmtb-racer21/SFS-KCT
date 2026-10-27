@@ -1,28 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
 import { ReactionType, DailyPost } from '../types';
 import { 
   Rss, 
   Plus, 
   Send, 
-  MessageSquare, 
   Paperclip, 
   MapPin, 
   Trash2, 
   Calendar, 
-  ThumbsUp, 
   Sparkles, 
   AlertTriangle, 
-  Check, 
   UploadCloud,
-  FileCheck
+  FileCheck,
+  Loader2
 } from 'lucide-react';
 
 const REACTION_TYPES: ReactionType[] = ['WOW', 'Great', 'Excellent', 'Appreciate'];
 
 export const DailyProgressFeed: React.FC = () => {
-  const { currentUser, activeClass, refreshData } = useApp();
+  const { currentUser, activeClass, refreshData, activeMode } = useApp();
+
+  const [posts, setPosts] = useState<DailyPost[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [feedError, setFeedError] = useState<string | null>(null);
 
   const [showComposer, setShowComposer] = useState(false);
 
@@ -41,13 +44,42 @@ export const DailyProgressFeed: React.FC = () => {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | undefined>(undefined);
   const [locationPromptOpen, setLocationPromptOpen] = useState(false);
 
-  // File Attachment simulation
+  // File Attachment simulation & real storage
   const [attachedFile, setAttachedFile] = useState<{ name: string; type: string; size: number } | null>(null);
+  const [selectedFileObj, setSelectedFileObj] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Mentor Feedback input state
   const [feedbackInputs, setFeedbackInputs] = useState<{ [postId: string]: string }>({});
+
+  const loadPosts = async () => {
+    if (!activeClass) {
+      setPosts([]);
+      return;
+    }
+    setIsLoading(true);
+    setFeedError(null);
+    try {
+      if (activeMode === 'production') {
+        const livePosts = await supabaseService.getDailyPostsForClass(activeClass.id);
+        setPosts(livePosts);
+      } else {
+        const demoPosts = appStore.getDailyPostsForClass(activeClass.id);
+        setPosts(demoPosts);
+      }
+    } catch (err: any) {
+      console.error('Failed to load feed:', err);
+      setFeedError(err.message || 'Failed to load class daily posts from backend.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPosts();
+  }, [activeClass?.id, activeMode]);
 
   if (!currentUser) {
     return <div className="p-8 text-center text-slate-500">Please sign in to view the progress feed.</div>;
@@ -61,7 +93,6 @@ export const DailyProgressFeed: React.FC = () => {
     );
   }
 
-  const posts = appStore.getDailyPostsForClass(activeClass.id);
   const isMentor = currentUser.role === 'mentor';
   const isStudent = currentUser.role === 'student';
 
@@ -72,7 +103,6 @@ export const DailyProgressFeed: React.FC = () => {
       setCoords(undefined);
       return;
     }
-
     setLocationPromptOpen(true);
   };
 
@@ -98,7 +128,7 @@ export const DailyProgressFeed: React.FC = () => {
     }
   };
 
-  // Handle Attachment Simulation
+  // Handle Attachment Selection
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -108,24 +138,15 @@ export const DailyProgressFeed: React.FC = () => {
       return;
     }
 
-    setUploadProgress(10);
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (!prev || prev >= 100) {
-          clearInterval(interval);
-          setAttachedFile({
-            name: file.name,
-            type: file.type.startsWith('image') ? 'image' : file.type.includes('pdf') ? 'pdf' : 'doc',
-            size: file.size,
-          });
-          return null;
-        }
-        return prev + 30;
-      });
-    }, 150);
+    setSelectedFileObj(file);
+    setAttachedFile({
+      name: file.name,
+      type: file.type.startsWith('image') ? 'image' : file.type.includes('pdf') ? 'pdf' : 'doc',
+      size: file.size,
+    });
   };
 
-  const handleCreatePost = (e: React.FormEvent) => {
+  const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || !description.trim()) {
       setFormError('Please enter a title and description.');
@@ -137,58 +158,121 @@ export const DailyProgressFeed: React.FC = () => {
       .map((s) => s.trim())
       .filter(Boolean);
 
-    appStore.createDailyPost({
-      class_id: activeClass.id,
-      student_id: currentUser.id,
-      category,
-      title: title.trim(),
-      description: description.trim(),
-      skills_gained: skills,
-      challenges: challenges.trim() || undefined,
-      next_steps: nextSteps.trim() || undefined,
-      activity_date: activityDate,
-      attachment_name: attachedFile?.name,
-      attachment_type: (attachedFile?.type as any) || undefined,
-      attachment_size: attachedFile?.size,
-      attachment_url: attachedFile ? `https://storage.mentorpulse.local/${attachedFile.name}` : undefined,
-      location_name: locationName.trim() || undefined,
-      location_coords: shareLocationCoords && coords ? coords : undefined,
-    });
-
-    // Reset Form
-    setTitle('');
-    setDescription('');
-    setSkillsInput('');
-    setChallenges('');
-    setNextSteps('');
-    setLocationName('');
-    setShareLocationCoords(false);
-    setCoords(undefined);
-    setAttachedFile(null);
-    setShowComposer(false);
+    setIsSubmitting(true);
     setFormError('');
-    refreshData();
-  };
 
-  const handleDeletePost = (postId: string) => {
-    if (window.confirm('Are you sure you want to delete this progress post?')) {
-      appStore.deleteDailyPost(postId, currentUser.id);
-      refreshData();
+    try {
+      if (activeMode === 'production') {
+        let uploadedUrl: string | undefined = undefined;
+        if (selectedFileObj) {
+          setUploadProgress(40);
+          const uploadRes = await supabaseService.uploadAttachment(currentUser.id, selectedFileObj);
+          uploadedUrl = uploadRes.url;
+          setUploadProgress(100);
+        }
+
+        await supabaseService.createDailyPost({
+          class_id: activeClass.id,
+          student_id: currentUser.id,
+          category,
+          title: title.trim(),
+          description: description.trim(),
+          skills_gained: skills,
+          challenges: challenges.trim() || undefined,
+          next_steps: nextSteps.trim() || undefined,
+          activity_date: activityDate,
+          attachment_name: attachedFile?.name,
+          attachment_type: (attachedFile?.type as any) || undefined,
+          attachment_size: attachedFile?.size,
+          attachment_url: uploadedUrl,
+          location_name: locationName.trim() || undefined,
+          location_coords: shareLocationCoords && coords ? coords : undefined,
+        });
+      } else {
+        // Demo Mode
+        appStore.createDailyPost({
+          class_id: activeClass.id,
+          student_id: currentUser.id,
+          category,
+          title: title.trim(),
+          description: description.trim(),
+          skills_gained: skills,
+          challenges: challenges.trim() || undefined,
+          next_steps: nextSteps.trim() || undefined,
+          activity_date: activityDate,
+          attachment_name: attachedFile?.name,
+          attachment_type: (attachedFile?.type as any) || undefined,
+          attachment_size: attachedFile?.size,
+          attachment_url: attachedFile ? `https://storage.mentorpulse.local/${attachedFile.name}` : undefined,
+          location_name: locationName.trim() || undefined,
+          location_coords: shareLocationCoords && coords ? coords : undefined,
+        });
+      }
+
+      // Reset Form
+      setTitle('');
+      setDescription('');
+      setSkillsInput('');
+      setChallenges('');
+      setNextSteps('');
+      setLocationName('');
+      setShareLocationCoords(false);
+      setCoords(undefined);
+      setAttachedFile(null);
+      setSelectedFileObj(null);
+      setUploadProgress(null);
+      setShowComposer(false);
+      await loadPosts();
+    } catch (err: any) {
+      setFormError(`Failed to publish: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleReaction = (postId: string, reactionType: ReactionType) => {
-    appStore.reactToPost(postId, currentUser.id, reactionType);
-    refreshData();
+  const handleDeletePost = async (postId: string) => {
+    if (!window.confirm('Are you sure you want to delete this progress post?')) return;
+
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.deleteDailyPost(postId, currentUser.id);
+      } else {
+        appStore.deleteDailyPost(postId, currentUser.id);
+      }
+      await loadPosts();
+    } catch (err: any) {
+      alert(`Delete failed: ${err.message}`);
+    }
   };
 
-  const handleSendFeedback = (postId: string) => {
+  const handleReaction = async (postId: string, reactionType: ReactionType) => {
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.reactToPost(postId, currentUser.id, reactionType);
+      } else {
+        appStore.reactToPost(postId, currentUser.id, reactionType);
+      }
+      await loadPosts();
+    } catch (err: any) {
+      console.error('Reaction error:', err);
+    }
+  };
+
+  const handleSendFeedback = async (postId: string) => {
     const content = feedbackInputs[postId];
     if (!content || !content.trim() || !isMentor) return;
 
-    appStore.addPostFeedback(postId, currentUser.id, content.trim());
-    setFeedbackInputs({ ...feedbackInputs, [postId]: '' });
-    refreshData();
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.addPostFeedback(postId, currentUser.id, content.trim());
+      } else {
+        appStore.addPostFeedback(postId, currentUser.id, content.trim());
+      }
+      setFeedbackInputs({ ...feedbackInputs, [postId]: '' });
+      await loadPosts();
+    } catch (err: any) {
+      alert(`Feedback submission failed: ${err.message}`);
+    }
   };
 
   return (
@@ -217,6 +301,18 @@ export const DailyProgressFeed: React.FC = () => {
         )}
       </div>
 
+      {feedError && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{feedError}</span>
+          </div>
+          <button onClick={loadPosts} className="text-xs font-bold underline hover:text-rose-950">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Student Post Composer Card */}
       {showComposer && isStudent && (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-md p-6 animate-in fade-in slide-in-from-top-2">
@@ -230,7 +326,7 @@ export const DailyProgressFeed: React.FC = () => {
 
           <form onSubmit={handleCreatePost} className="space-y-4">
             {formError && (
-              <div className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs">
+              <div className="p-3 rounded-xl bg-rose-50 text-rose-700 text-xs font-medium">
                 {formError}
               </div>
             )}
@@ -386,7 +482,7 @@ export const DailyProgressFeed: React.FC = () => {
               )}
             </div>
 
-            {/* Attachment Upload Simulation */}
+            {/* Attachment Upload Simulation & Real Storage */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
               <label className="block text-xs font-semibold text-slate-700 mb-1">
                 Attach Proof / Evidence (PDF, Image, Certificate, Max 25MB)
@@ -429,10 +525,20 @@ export const DailyProgressFeed: React.FC = () => {
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
+                disabled={isSubmitting}
+                className="px-4 py-2 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
               >
-                <Send className="w-3.5 h-3.5 text-teal-400" />
-                Publish Progress Update
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Publishing...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5 text-teal-400" />
+                    Publish Progress Update
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -469,7 +575,12 @@ export const DailyProgressFeed: React.FC = () => {
       )}
 
       {/* Daily Posts Feed Stream */}
-      {posts.length === 0 ? (
+      {isLoading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
+          <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+          <p className="text-xs font-medium">Loading class progress stream...</p>
+        </div>
+      ) : posts.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
           <Rss className="w-10 h-10 mx-auto mb-2 opacity-30" />
           <p className="text-sm font-semibold text-slate-700">No progress updates in this class yet</p>
@@ -515,11 +626,11 @@ export const DailyProgressFeed: React.FC = () => {
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase bg-teal-50 text-teal-800 border border-teal-200/50">
                       {post.category}
                     </span>
-                    {isAuthor && (
+                    {(isAuthor || isMentor) && (
                       <button
                         onClick={() => handleDeletePost(post.id)}
                         className="p-1 text-slate-400 hover:text-rose-600 transition-colors"
-                        title="Delete your post"
+                        title={isAuthor ? "Delete your post" : "Moderate/Delete post"}
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -582,7 +693,18 @@ export const DailyProgressFeed: React.FC = () => {
                   {post.attachment_name && (
                     <div className="flex items-center gap-1.5 text-teal-700 bg-teal-50 px-2.5 py-1 rounded-lg">
                       <Paperclip className="w-3.5 h-3.5" />
-                      <span className="font-medium">{post.attachment_name}</span>
+                      {post.attachment_url ? (
+                        <a 
+                          href={post.attachment_url} 
+                          target="_blank" 
+                          rel="noreferrer"
+                          className="font-medium hover:underline"
+                        >
+                          {post.attachment_name}
+                        </a>
+                      ) : (
+                        <span className="font-medium">{post.attachment_name}</span>
+                      )}
                     </div>
                   )}
                 </div>

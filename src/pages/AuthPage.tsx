@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
 import { UserRole } from '../types';
 import { 
   GraduationCap, 
@@ -8,14 +9,13 @@ import {
   Mail, 
   Lock, 
   ArrowRight, 
-  CheckCircle, 
-  Users, 
-  ShieldCheck 
+  Database,
+  Info
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const AuthPage: React.FC = () => {
-  const { login, switchUser, currentUser } = useApp();
+  const { login, switchUser, activeMode, isConfigured } = useApp();
   const navigate = useNavigate();
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
@@ -24,58 +24,95 @@ export const AuthPage: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Sign Up Form State
-  const [role, setRole] = useState<UserRole>('mentor');
+  const [role, setRole] = useState<'mentor' | 'student'>('mentor');
   const [fullName, setFullName] = useState('');
   const [regNo, setRegNo] = useState('');
   const [department, setDepartment] = useState('Electronics and Communication Engineering');
 
-  const handleSignIn = (e: React.FormEvent) => {
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) {
       setErrorMsg('Please enter your institutional email.');
       return;
     }
 
-    const success = login(email.trim());
-    if (success) {
-      const user = appStore.getCurrentUser();
-      if (user?.role === 'mentor') {
-        navigate('/mentor/dashboard');
+    if (activeMode === 'production' && !password.trim()) {
+      setErrorMsg('Password is required for production Supabase authentication.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMsg('');
+
+    try {
+      const success = await login(email.trim(), password.trim());
+      if (success) {
+        navigate('/');
       } else {
-        navigate('/student/feed');
+        setErrorMsg(
+          activeMode === 'production'
+            ? 'Sign in failed. Please verify your credentials or check your connection.'
+            : 'No demo account found with this email. Use one of the 1-click test personas on the left.'
+        );
       }
-    } else {
-      setErrorMsg('No user account found with this email. Try demo login or sign up.');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Authentication error.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleSignUp = (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !email.trim()) {
       setErrorMsg('Please enter your full name and email.');
       return;
     }
 
-    try {
-      const newProfile = appStore.registerUser({
-        id: (role === 'mentor' ? 'mentor-' : 'student-') + Date.now(),
-        role,
-        full_name: fullName.trim(),
-        email: email.trim().toLowerCase(),
-        student_reg_no: role === 'student' ? regNo.trim() : undefined,
-        department: department.trim(),
-        skills: [],
-      });
+    if (activeMode === 'production' && password.length < 6) {
+      setErrorMsg('Password must be at least 6 characters in Production Mode.');
+      return;
+    }
 
-      if (newProfile.role === 'mentor') {
-        navigate('/mentor/dashboard');
+    setIsSubmitting(true);
+    setErrorMsg('');
+
+    try {
+      if (activeMode === 'production') {
+        const profile = await supabaseService.signUp(email.trim().toLowerCase(), password, {
+          role,
+          full_name: fullName.trim(),
+          student_reg_no: role === 'student' ? regNo.trim() : undefined,
+          department: department.trim(),
+        });
+        if (profile.role === 'mentor') {
+          navigate('/mentor/dashboard');
+        } else {
+          navigate('/student/classes');
+        }
       } else {
-        navigate('/student/classes');
+        const newProfile = appStore.registerUser({
+          id: (role === 'mentor' ? 'mentor-' : 'student-') + Date.now(),
+          role,
+          full_name: fullName.trim(),
+          email: email.trim().toLowerCase(),
+          student_reg_no: role === 'student' ? regNo.trim() : undefined,
+          department: department.trim(),
+          skills: [],
+        });
+        if (newProfile.role === 'mentor') {
+          navigate('/mentor/dashboard');
+        } else {
+          navigate('/student/classes');
+        }
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Registration failed.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -114,12 +151,17 @@ export const AuthPage: React.FC = () => {
 
             {/* Quick Demo Personas Box */}
             <div className="mt-8 p-4 rounded-2xl bg-navy-900 border border-navy-800 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-teal-300 uppercase tracking-wider">
-                <Sparkles className="w-3.5 h-3.5" />
-                1-Click Quick Demo Sign In
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs font-bold text-teal-300 uppercase tracking-wider">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  1-Click Test Personas
+                </div>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-mono font-bold">
+                  Demo Mode
+                </span>
               </div>
               <p className="text-[11px] text-slate-400">
-                Click any persona to instantly test isolated role-based views:
+                Instantly switch roles to test isolated faculty mentor vs student views:
               </p>
 
               <div className="space-y-2 pt-1">
@@ -183,7 +225,10 @@ export const AuthPage: React.FC = () => {
           </div>
 
           <div className="text-[11px] text-slate-500 mt-6 pt-4 border-t border-navy-900 flex items-center justify-between">
-            <span>Production Supabase Ready</span>
+            <span className="flex items-center gap-1.5">
+              <Database className="w-3.5 h-3.5 text-teal-400" />
+              {activeMode === 'production' ? 'Production Supabase Mode' : 'Local Storage Demo Mode'}
+            </span>
             <span>Version 1.0</span>
           </div>
         </div>
@@ -222,7 +267,7 @@ export const AuthPage: React.FC = () => {
             </div>
 
             {errorMsg && (
-              <div className="p-3 mb-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+              <div className="p-3 mb-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
                 {errorMsg}
               </div>
             )}
@@ -248,7 +293,7 @@ export const AuthPage: React.FC = () => {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Password
+                    Password {activeMode === 'demo' && <span className="text-slate-400 font-normal">(Optional in Demo Mode)</span>}
                   </label>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -264,9 +309,10 @@ export const AuthPage: React.FC = () => {
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
                 >
-                  Sign In to MentorPulse
+                  {isSubmitting ? 'Authenticating...' : 'Sign In to MentorPulse'}
                   <ArrowRight className="w-3.5 h-3.5 text-teal-400" />
                 </button>
               </form>
@@ -330,6 +376,20 @@ export const AuthPage: React.FC = () => {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Password * {activeMode === 'production' && <span className="text-slate-400 font-normal">(Min 6 chars)</span>}
+                  </label>
+                  <input
+                    type="password"
+                    required={activeMode === 'production'}
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
                 {role === 'student' && (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -360,9 +420,10 @@ export const AuthPage: React.FC = () => {
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                  disabled={isSubmitting}
+                  className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
                 >
-                  Create {role === 'mentor' ? 'Faculty Mentor' : 'Student'} Account
+                  {isSubmitting ? 'Registering...' : `Create ${role === 'mentor' ? 'Faculty Mentor' : 'Student'} Account`}
                   <ArrowRight className="w-3.5 h-3.5 text-teal-400" />
                 </button>
               </form>

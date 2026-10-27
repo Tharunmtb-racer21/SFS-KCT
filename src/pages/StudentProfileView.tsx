@@ -1,68 +1,122 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
+import { Profile, DailyPost, WeeklyReport } from '../types';
 import { 
   ArrowLeft, 
-  User, 
   Mail, 
   Phone, 
-  GraduationCap, 
   Award, 
   Target, 
   Heart, 
   Calendar, 
   Rss, 
-  FileText, 
-  MessageSquare, 
   Paperclip, 
-  MapPin,
-  Clock,
+  MapPin, 
+  Clock, 
   Send,
-  CheckCircle2
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 
 export const StudentProfileView: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>();
-  const { currentUser, activeClass, refreshData } = useApp();
+  const { currentUser, activeClass, refreshData, activeMode } = useApp();
   const navigate = useNavigate();
+
+  const [student, setStudent] = useState<Profile | null>(null);
+  const [dailyPosts, setDailyPosts] = useState<DailyPost[]>([]);
+  const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [feedbackText, setFeedbackText] = useState<{ [postId: string]: string }>({});
   const [submittingPostId, setSubmittingPostId] = useState<string | null>(null);
+
+  const loadStudentData = async () => {
+    if (!studentId) return;
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      if (activeMode === 'production') {
+        const profile = await supabaseService.getProfile(studentId);
+        setStudent(profile);
+        const posts = await supabaseService.getDailyPostsForStudent(studentId, activeClass?.id);
+        setDailyPosts(posts);
+        const reports = await supabaseService.getWeeklyReportsForStudent(studentId, activeClass?.id);
+        setWeeklyReports(reports);
+      } else {
+        const profile = appStore.getProfile(studentId);
+        setStudent(profile);
+        const posts = appStore.getDailyPostsForStudent(studentId, activeClass?.id);
+        setDailyPosts(posts);
+        const reports = appStore.getWeeklyReportsForStudent(studentId, activeClass?.id);
+        setWeeklyReports(reports);
+      }
+    } catch (err: any) {
+      console.error('Failed to load student journey:', err);
+      setErrorMsg(err.message || 'Failed to load student data.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStudentData();
+  }, [studentId, activeClass?.id, activeMode]);
 
   if (!studentId) {
     return <div className="p-8 text-center text-slate-500">Student ID is required.</div>;
   }
 
-  const student = appStore.getProfile(studentId);
-  if (!student) {
+  const handleSendFeedback = async (postId: string) => {
+    const text = feedbackText[postId];
+    if (!text || !text.trim() || !currentUser) return;
+
+    setSubmittingPostId(postId);
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.addPostFeedback(postId, currentUser.id, text.trim());
+      } else {
+        appStore.addPostFeedback(postId, currentUser.id, text.trim());
+      }
+      setFeedbackText({ ...feedbackText, [postId]: '' });
+      await loadStudentData();
+      await refreshData();
+    } catch (err: any) {
+      alert(`Feedback submission failed: ${err.message}`);
+    } finally {
+      setSubmittingPostId(null);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
+        <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+        <p className="text-xs font-medium">Loading student journey...</p>
+      </div>
+    );
+  }
+
+  if (errorMsg || !student) {
     return (
       <div className="p-8 text-center space-y-3">
-        <h2 className="text-lg font-bold text-slate-800">Student Not Found</h2>
+        <div className="w-12 h-12 rounded-full bg-rose-50 text-rose-600 flex items-center justify-center mx-auto">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <h2 className="text-lg font-bold text-slate-800">{errorMsg || 'Student Not Found'}</h2>
         <button
           onClick={() => navigate('/mentor/students')}
-          className="text-xs text-teal-700 hover:underline"
+          className="text-xs text-teal-700 hover:underline font-semibold"
         >
           &larr; Return to directory
         </button>
       </div>
     );
   }
-
-  // Get posts and weekly reports for this student
-  const dailyPosts = appStore.getDailyPostsForStudent(studentId, activeClass?.id);
-  const weeklyReports = appStore.getWeeklyReportsForStudent(studentId, activeClass?.id);
-
-  const handleSendFeedback = (postId: string) => {
-    const text = feedbackText[postId];
-    if (!text || !text.trim() || !currentUser) return;
-
-    setSubmittingPostId(postId);
-    appStore.addPostFeedback(postId, currentUser.id, text.trim());
-    setFeedbackText({ ...feedbackText, [postId]: '' });
-    setSubmittingPostId(null);
-    refreshData();
-  };
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -246,14 +300,20 @@ export const StudentProfileView: React.FC = () => {
                     <span className="text-slate-400 flex items-center gap-1">
                       <Paperclip className="w-3.5 h-3.5" /> Attached Proof:
                     </span>
-                    <a
-                      href={post.attachment_url || '#'}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="font-medium text-teal-700 hover:underline bg-teal-50 px-2 py-0.5 rounded"
-                    >
-                      {post.attachment_name}
-                    </a>
+                    {post.attachment_url ? (
+                      <a
+                        href={post.attachment_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-medium text-teal-700 hover:underline bg-teal-50 px-2 py-0.5 rounded"
+                      >
+                        {post.attachment_name}
+                      </a>
+                    ) : (
+                      <span className="font-medium bg-teal-50 px-2 py-0.5 rounded text-teal-800">
+                        {post.attachment_name}
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -263,7 +323,7 @@ export const StudentProfileView: React.FC = () => {
                   {post.reactions && post.reactions.length > 0 ? (
                     post.reactions.map((r) => (
                       <span key={r.id} className="text-xs bg-slate-100 px-2 py-0.5 rounded-full text-slate-700 font-medium">
-                        {r.reaction_type} &bull; {r.user_name || 'Classmate'}
+                        {r.reaction_type}
                       </span>
                     ))
                   ) : (

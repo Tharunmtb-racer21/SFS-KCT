@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
 import { WeeklyReport } from '../types';
 import { 
   CalendarCheck, 
@@ -8,16 +9,17 @@ import {
   Save, 
   Send, 
   CheckCircle, 
-  Clock, 
-  FileText, 
-  Award, 
-  MessageSquare, 
   Filter,
-  AlertCircle
+  AlertCircle,
+  Loader2
 } from 'lucide-react';
 
 export const WeeklyReportsPage: React.FC = () => {
-  const { currentUser, activeClass, refreshData } = useApp();
+  const { currentUser, activeClass, refreshData, activeMode } = useApp();
+
+  const [reports, setReports] = useState<WeeklyReport[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<number | 'all'>('all');
@@ -33,9 +35,41 @@ export const WeeklyReportsPage: React.FC = () => {
   const [difficultiesFaced, setDifficultiesFaced] = useState('');
   const [nextWeekGoals, setNextWeekGoals] = useState('');
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Mentor Review feedback input state
   const [reviewInputs, setReviewInputs] = useState<{ [reportId: string]: string }>({});
+
+  const loadReports = async () => {
+    if (!activeClass || !currentUser) {
+      setReports([]);
+      return;
+    }
+    setIsLoading(true);
+    setReportError(null);
+    try {
+      if (activeMode === 'production') {
+        const liveReports = currentUser.role === 'mentor'
+          ? await supabaseService.getWeeklyReportsForClass(activeClass.id)
+          : await supabaseService.getWeeklyReportsForStudent(currentUser.id, activeClass.id);
+        setReports(liveReports);
+      } else {
+        const demoReports = currentUser.role === 'mentor'
+          ? appStore.getWeeklyReportsForClass(activeClass.id)
+          : appStore.getWeeklyReportsForStudent(currentUser.id, activeClass.id);
+        setReports(demoReports);
+      }
+    } catch (err: any) {
+      console.error('Failed to load weekly reports:', err);
+      setReportError(err.message || 'Failed to load weekly reports from backend.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadReports();
+  }, [activeClass?.id, currentUser?.id, activeMode]);
 
   if (!currentUser) {
     return <div className="p-8 text-center text-slate-500">Please sign in to view weekly reports.</div>;
@@ -52,57 +86,75 @@ export const WeeklyReportsPage: React.FC = () => {
   const isMentor = currentUser.role === 'mentor';
   const isStudent = currentUser.role === 'student';
 
-  const classReports = isMentor
-    ? appStore.getWeeklyReportsForClass(activeClass.id)
-    : appStore.getWeeklyReportsForStudent(currentUser.id, activeClass.id);
-
   const filteredReports = selectedWeekFilter === 'all'
-    ? classReports
-    : classReports.filter(r => r.week_number === selectedWeekFilter);
+    ? reports
+    : reports.filter(r => r.week_number === selectedWeekFilter);
 
   // Available week numbers for filter dropdown
-  const availableWeeks = Array.from(new Set(classReports.map(r => r.week_number))).sort((a, b) => b - a);
+  const availableWeeks = Array.from(new Set(reports.map(r => r.week_number))).sort((a, b) => b - a);
 
-  const handleSaveReport = (status: 'draft' | 'submitted') => {
+  const handleSaveReport = async (status: 'draft' | 'submitted') => {
     if (!achievements.trim() || !activitiesCompleted.trim() || !nextWeekGoals.trim()) {
       setFormError('Please complete achievements, activities completed, and next week goals.');
       return;
     }
 
-    appStore.saveWeeklyReport({
-      class_id: activeClass.id,
-      student_id: currentUser.id,
-      week_number: Number(weekNumber),
-      start_date: startDate,
-      end_date: endDate,
-      achievements: achievements.trim(),
-      activities_completed: activitiesCompleted.trim(),
-      skills_learned: skillsLearned.trim() || undefined,
-      goals_achieved: goalsAchieved.trim() || undefined,
-      difficulties_faced: difficultiesFaced.trim() || undefined,
-      next_week_goals: nextWeekGoals.trim(),
-      status,
-      submitted_at: new Date().toISOString(),
-    });
-
-    setShowForm(false);
-    setAchievements('');
-    setActivitiesCompleted('');
-    setSkillsLearned('');
-    setGoalsAchieved('');
-    setDifficultiesFaced('');
-    setNextWeekGoals('');
+    setIsSubmitting(true);
     setFormError('');
-    refreshData();
+
+    try {
+      const payload = {
+        class_id: activeClass.id,
+        student_id: currentUser.id,
+        week_number: Number(weekNumber),
+        start_date: startDate,
+        end_date: endDate,
+        achievements: achievements.trim(),
+        activities_completed: activitiesCompleted.trim(),
+        skills_learned: skillsLearned.trim() || undefined,
+        goals_achieved: goalsAchieved.trim() || undefined,
+        difficulties_faced: difficultiesFaced.trim() || undefined,
+        next_week_goals: nextWeekGoals.trim(),
+        status,
+        submitted_at: new Date().toISOString(),
+      };
+
+      if (activeMode === 'production') {
+        await supabaseService.saveWeeklyReport(payload);
+      } else {
+        appStore.saveWeeklyReport(payload);
+      }
+
+      setShowForm(false);
+      setAchievements('');
+      setActivitiesCompleted('');
+      setSkillsLearned('');
+      setGoalsAchieved('');
+      setDifficultiesFaced('');
+      setNextWeekGoals('');
+      await loadReports();
+    } catch (err: any) {
+      setFormError(`Failed to save report: ${err.message}`);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSendReportFeedback = (reportId: string) => {
+  const handleSendReportFeedback = async (reportId: string) => {
     const content = reviewInputs[reportId];
     if (!content || !content.trim() || !isMentor) return;
 
-    appStore.addWeeklyReportFeedback(reportId, currentUser.id, content.trim());
-    setReviewInputs({ ...reviewInputs, [reportId]: '' });
-    refreshData();
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.addWeeklyReportFeedback(reportId, currentUser.id, content.trim());
+      } else {
+        appStore.addWeeklyReportFeedback(reportId, currentUser.id, content.trim());
+      }
+      setReviewInputs({ ...reviewInputs, [reportId]: '' });
+      await loadReports();
+    } catch (err: any) {
+      alert(`Feedback submission failed: ${err.message}`);
+    }
   };
 
   return (
@@ -153,6 +205,18 @@ export const WeeklyReportsPage: React.FC = () => {
         </div>
       </div>
 
+      {reportError && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{reportError}</span>
+          </div>
+          <button onClick={loadReports} className="text-xs font-bold underline hover:text-rose-950">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Student Weekly Report Composer Form */}
       {showForm && isStudent && (
         <div className="bg-white rounded-2xl border border-teal-200 shadow-md p-6 animate-in fade-in slide-in-from-top-2">
@@ -167,7 +231,7 @@ export const WeeklyReportsPage: React.FC = () => {
           </div>
 
           {formError && (
-            <div className="p-3 mb-4 rounded-xl bg-rose-50 text-rose-700 text-xs">
+            <div className="p-3 mb-4 rounded-xl bg-rose-50 text-rose-700 text-xs font-medium">
               {formError}
             </div>
           )}
@@ -298,6 +362,7 @@ export const WeeklyReportsPage: React.FC = () => {
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => handleSaveReport('draft')}
                 className="px-4 py-2 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 text-xs font-semibold flex items-center gap-1.5 transition-colors"
               >
@@ -307,11 +372,21 @@ export const WeeklyReportsPage: React.FC = () => {
 
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => handleSaveReport('submitted')}
-                className="px-4 py-2 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                className="px-4 py-2 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
               >
-                <Send className="w-3.5 h-3.5 text-teal-400" />
-                Submit to Mentor
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    Submitting...
+                  </>
+                ) : (
+                  <>
+                    <Send className="w-3.5 h-3.5 text-teal-400" />
+                    Submit to Mentor
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -319,7 +394,12 @@ export const WeeklyReportsPage: React.FC = () => {
       )}
 
       {/* Reports List */}
-      {filteredReports.length === 0 ? (
+      {isLoading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
+          <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+          <p className="text-xs font-medium">Loading weekly reports...</p>
+        </div>
+      ) : filteredReports.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
           <CalendarCheck className="w-10 h-10 mx-auto mb-2 opacity-30" />
           <p className="text-sm font-semibold text-slate-700">No weekly reports found</p>

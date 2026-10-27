@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
+import { ClassEnrollment, DailyPost, WeeklyReport, Profile } from '../types';
 import { 
   Users, 
   Clock, 
@@ -11,19 +13,64 @@ import {
   Copy, 
   Check, 
   Download, 
-  ExternalLink,
-  ChevronRight,
-  Sparkles,
-  Layers,
-  GraduationCap
+  ChevronRight, 
+  Layers, 
+  GraduationCap,
+  Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 export const MentorDashboard: React.FC = () => {
-  const { currentUser, activeClass, classes, setActiveClassId } = useApp();
+  const { currentUser, activeClass, classes, setActiveClassId, activeMode } = useApp();
   const navigate = useNavigate();
 
+  const [enrollments, setEnrollments] = useState<(ClassEnrollment & { student: Profile })[]>([]);
+  const [classPosts, setClassPosts] = useState<DailyPost[]>([]);
+  const [classWeeklyReports, setClassWeeklyReports] = useState<WeeklyReport[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const [copiedLink, setCopiedLink] = useState(false);
+
+  const loadDashboardData = async () => {
+    if (!activeClass) {
+      setEnrollments([]);
+      setClassPosts([]);
+      setClassWeeklyReports([]);
+      return;
+    }
+
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      if (activeMode === 'production') {
+        const [liveEnrollments, livePosts, liveReports] = await Promise.all([
+          supabaseService.getEnrollmentsForClass(activeClass.id),
+          supabaseService.getDailyPostsForClass(activeClass.id),
+          supabaseService.getWeeklyReportsForClass(activeClass.id),
+        ]);
+        setEnrollments(liveEnrollments);
+        setClassPosts(livePosts);
+        setClassWeeklyReports(liveReports);
+      } else {
+        const demoEnrollments = appStore.getEnrollmentsForClass(activeClass.id);
+        const demoPosts = appStore.getDailyPostsForClass(activeClass.id);
+        const demoReports = appStore.getWeeklyReportsForClass(activeClass.id);
+        setEnrollments(demoEnrollments);
+        setClassPosts(demoPosts);
+        setClassWeeklyReports(demoReports);
+      }
+    } catch (err: any) {
+      console.error('Failed to load dashboard:', err);
+      setErrorMsg(err.message || 'Failed to load dashboard metrics.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadDashboardData();
+  }, [activeClass?.id, activeMode]);
 
   if (!currentUser || currentUser.role !== 'mentor') {
     return (
@@ -51,11 +98,8 @@ export const MentorDashboard: React.FC = () => {
     );
   }
 
-  const enrollments = appStore.getEnrollmentsForClass(activeClass.id);
   const approvedStudents = enrollments.filter(e => e.status === 'approved');
   const pendingStudents = enrollments.filter(e => e.status === 'pending');
-  const classPosts = appStore.getDailyPostsForClass(activeClass.id);
-  const classWeeklyReports = appStore.getWeeklyReportsForClass(activeClass.id);
 
   // Identify students needing attention (no posts in last 7 days or missing weekly report)
   const studentsNeedingAttention = approvedStudents.filter(e => {
@@ -80,7 +124,41 @@ export const MentorDashboard: React.FC = () => {
   };
 
   const handleExportCSV = () => {
-    const csvContent = appStore.exportClassRosterCSV(activeClass.id);
+    const headers = [
+      'Register Number',
+      'Student Name',
+      'Institutional Email',
+      'Department',
+      'Academic Year',
+      'Enrollment Status',
+      'Total Daily Posts',
+      'Weekly Reports Submitted',
+      'Top Skills'
+    ];
+
+    const rows = enrollments.map((e) => {
+      const student = e.student;
+      const postCount = classPosts.filter(
+        (p) => p.student_id === student.id
+      ).length;
+      const reportCount = classWeeklyReports.filter(
+        (r) => r.student_id === student.id && r.status === 'submitted'
+      ).length;
+
+      return [
+        `"${student.student_reg_no || 'N/A'}"`,
+        `"${student.full_name}"`,
+        `"${student.email}"`,
+        `"${student.department || activeClass.department}"`,
+        `"${student.academic_year || activeClass.academic_year}"`,
+        `"${e.status}"`,
+        postCount,
+        reportCount,
+        `"${(student.skills || []).join('; ')}"`
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -138,6 +216,18 @@ export const MentorDashboard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {errorMsg && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={loadDashboardData} className="text-xs font-bold underline hover:text-rose-950">
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Quick Invite & Action Ribbon */}
       <div className="bg-gradient-to-r from-navy-900 via-navy-850 to-navy-900 text-white p-4 rounded-2xl shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4 border border-navy-800">
@@ -272,7 +362,12 @@ export const MentorDashboard: React.FC = () => {
               </button>
             </div>
 
-            {approvedStudents.length === 0 ? (
+            {isLoading ? (
+              <div className="py-8 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
+                <Loader2 className="w-6 h-6 animate-spin text-teal-600" />
+                <p className="text-xs">Loading roster...</p>
+              </div>
+            ) : approvedStudents.length === 0 ? (
               <div className="text-center py-8 text-slate-400">
                 <Users className="w-8 h-8 mx-auto mb-2 opacity-30" />
                 <p className="text-sm font-medium text-slate-600">No approved students yet</p>
@@ -293,6 +388,7 @@ export const MentorDashboard: React.FC = () => {
                   <tbody className="divide-y divide-slate-100">
                     {approvedStudents.map((enrollment) => {
                       const student = enrollment.student;
+                      if (!student) return null;
                       const postCount = classPosts.filter(p => p.student_id === student.id).length;
                       const hasReport = classWeeklyReports.some(r => r.student_id === student.id && r.status === 'submitted');
 

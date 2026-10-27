@@ -1,6 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
+import { ClassEnrollment, Profile } from '../types';
 import { 
   Users, 
   Search, 
@@ -10,22 +12,52 @@ import {
   ExternalLink, 
   Phone, 
   Mail, 
-  GraduationCap, 
-  ShieldCheck,
-  Filter,
-  UserX
+  UserX,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 export const StudentDirectory: React.FC = () => {
-  const { currentUser, activeClass, refreshData } = useApp();
+  const { currentUser, activeClass, refreshData, activeMode } = useApp();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const [enrollments, setEnrollments] = useState<(ClassEnrollment & { student: Profile })[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'approved' | 'pending'>(
     searchParams.get('tab') === 'pending' ? 'pending' : 'approved'
   );
+
+  const loadEnrollments = async () => {
+    if (!activeClass) {
+      setEnrollments([]);
+      return;
+    }
+    setIsLoading(true);
+    setErrorMsg(null);
+    try {
+      if (activeMode === 'production') {
+        const liveList = await supabaseService.getEnrollmentsForClass(activeClass.id);
+        setEnrollments(liveList);
+      } else {
+        const demoList = appStore.getEnrollmentsForClass(activeClass.id);
+        setEnrollments(demoList);
+      }
+    } catch (err: any) {
+      console.error('Failed to load roster:', err);
+      setErrorMsg(err.message || 'Failed to load class roster from backend.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadEnrollments();
+  }, [activeClass?.id, activeMode]);
 
   if (!currentUser || currentUser.role !== 'mentor') {
     return <div className="p-8 text-center text-slate-600">Access restricted to mentors.</div>;
@@ -39,19 +71,35 @@ export const StudentDirectory: React.FC = () => {
     );
   }
 
-  const allEnrollments = appStore.getEnrollmentsForClass(activeClass.id);
-  const approvedList = allEnrollments.filter(e => e.status === 'approved');
-  const pendingList = allEnrollments.filter(e => e.status === 'pending');
+  const approvedList = enrollments.filter(e => e.status === 'approved');
+  const pendingList = enrollments.filter(e => e.status === 'pending');
 
-  const handleApprove = (enrollmentId: string, studentName: string) => {
-    appStore.reviewEnrollment(enrollmentId, 'approved', currentUser.id);
-    refreshData();
+  const handleApprove = async (enrollmentId: string) => {
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.reviewEnrollment(enrollmentId, 'approved', currentUser.id);
+      } else {
+        appStore.reviewEnrollment(enrollmentId, 'approved', currentUser.id);
+      }
+      await loadEnrollments();
+      await refreshData();
+    } catch (err: any) {
+      alert(`Approval failed: ${err.message}`);
+    }
   };
 
-  const handleReject = (enrollmentId: string) => {
-    if (window.confirm('Are you sure you want to decline this registration?')) {
-      appStore.reviewEnrollment(enrollmentId, 'rejected', currentUser.id);
-      refreshData();
+  const handleReject = async (enrollmentId: string) => {
+    if (!window.confirm('Are you sure you want to decline this registration?')) return;
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.reviewEnrollment(enrollmentId, 'rejected', currentUser.id);
+      } else {
+        appStore.reviewEnrollment(enrollmentId, 'rejected', currentUser.id);
+      }
+      await loadEnrollments();
+      await refreshData();
+    } catch (err: any) {
+      alert(`Decline failed: ${err.message}`);
     }
   };
 
@@ -59,6 +107,7 @@ export const StudentDirectory: React.FC = () => {
 
   const filteredList = currentList.filter(e => {
     const s = e.student;
+    if (!s) return false;
     const query = searchQuery.toLowerCase();
     return (
       s.full_name.toLowerCase().includes(query) ||
@@ -110,6 +159,18 @@ export const StudentDirectory: React.FC = () => {
         </div>
       </div>
 
+      {errorMsg && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{errorMsg}</span>
+          </div>
+          <button onClick={loadEnrollments} className="text-xs font-bold underline hover:text-rose-950">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* Search Bar */}
       <div className="relative">
         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -139,7 +200,12 @@ export const StudentDirectory: React.FC = () => {
       )}
 
       {/* Directory Grid */}
-      {filteredList.length === 0 ? (
+      {isLoading ? (
+        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 flex flex-col items-center justify-center gap-2">
+          <Loader2 className="w-8 h-8 animate-spin text-teal-600" />
+          <p className="text-xs font-medium">Loading roster from database...</p>
+        </div>
+      ) : filteredList.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
           <UserX className="w-10 h-10 mx-auto mb-2 opacity-30" />
           <p className="text-sm font-semibold text-slate-700">
@@ -221,7 +287,7 @@ export const StudentDirectory: React.FC = () => {
                   {isPending ? (
                     <div className="flex items-center gap-2 w-full">
                       <button
-                        onClick={() => handleApprove(enrollment.id, student.full_name)}
+                        onClick={() => handleApprove(enrollment.id)}
                         className="flex-1 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
                       >
                         <Check className="w-3.5 h-3.5" />

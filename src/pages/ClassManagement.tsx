@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
+import { supabaseService } from '../services/supabaseService';
 import { 
   Plus, 
   Share2, 
@@ -12,13 +13,12 @@ import {
   Layers, 
   Calendar, 
   Users, 
-  Info,
-  ExternalLink
+  Loader2
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 
 export const ClassManagement: React.FC = () => {
-  const { currentUser, classes, refreshData, setActiveClassId } = useApp();
+  const { currentUser, classes, refreshData, setActiveClassId, activeMode } = useApp();
   const [searchParams] = useSearchParams();
   const [showCreateModal, setShowCreateModal] = useState(searchParams.get('action') === 'new');
   
@@ -31,6 +31,7 @@ export const ClassManagement: React.FC = () => {
   const [requiresApproval, setRequiresApproval] = useState(true);
   const [expiresInDays, setExpiresInDays] = useState<number | undefined>(undefined);
   const [formError, setFormError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Copy feedback state
   const [copiedClassId, setCopiedClassId] = useState<string | null>(null);
@@ -39,15 +40,18 @@ export const ClassManagement: React.FC = () => {
     return <div className="p-8 text-center text-slate-600">Access restricted to mentors.</div>;
   }
 
-  const handleCreateClass = (e: React.FormEvent) => {
+  const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !department.trim()) {
       setFormError('Please enter a class name and department.');
       return;
     }
 
+    setIsSubmitting(true);
+    setFormError('');
+
     try {
-      const created = appStore.createClass({
+      const payload = {
         mentor_id: currentUser.id,
         name: name.trim(),
         department: department.trim(),
@@ -56,16 +60,26 @@ export const ClassManagement: React.FC = () => {
         description: description.trim(),
         requires_approval: requiresApproval,
         expiresInDays: expiresInDays ? Number(expiresInDays) : undefined,
-      });
+      };
 
-      refreshData();
-      setActiveClassId(created.id);
+      let createdId: string;
+      if (activeMode === 'production') {
+        const created = await supabaseService.createClass(payload);
+        createdId = created.id;
+      } else {
+        const created = appStore.createClass(payload);
+        createdId = created.id;
+      }
+
+      await refreshData();
+      setActiveClassId(createdId);
       setShowCreateModal(false);
       setName('');
       setDescription('');
-      setFormError('');
     } catch (err: any) {
       setFormError(err.message || 'Failed to create class.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -84,16 +98,31 @@ export const ClassManagement: React.FC = () => {
     window.open(`https://api.whatsapp.com/send?text=${text}`, '_blank');
   };
 
-  const handleRegenerateToken = (classId: string) => {
-    if (window.confirm('Regenerating will invalidate the previous invitation link immediately. Continue?')) {
-      appStore.regenerateInviteCode(classId);
-      refreshData();
+  const handleRegenerateToken = async (classId: string) => {
+    if (!window.confirm('Regenerating will invalidate the previous invitation link immediately. Continue?')) return;
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.regenerateInviteCode(classId);
+      } else {
+        appStore.regenerateInviteCode(classId);
+      }
+      await refreshData();
+    } catch (err: any) {
+      alert(`Token regeneration failed: ${err.message}`);
     }
   };
 
-  const handleToggleActive = (classId: string, currentActive: boolean) => {
-    appStore.toggleInviteActive(classId, !currentActive);
-    refreshData();
+  const handleToggleActive = async (classId: string, currentActive: boolean) => {
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.toggleInviteActive(classId, !currentActive);
+      } else {
+        appStore.toggleInviteActive(classId, !currentActive);
+      }
+      await refreshData();
+    } catch (err: any) {
+      alert(`Toggle invite status failed: ${err.message}`);
+    }
   };
 
   return (
@@ -259,7 +288,7 @@ export const ClassManagement: React.FC = () => {
 
             <form onSubmit={handleCreateClass} className="p-5 space-y-4">
               {formError && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs">
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
                   {formError}
                 </div>
               )}
@@ -368,9 +397,17 @@ export const ClassManagement: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-navy-900 hover:bg-navy-800 text-white rounded-xl text-xs font-semibold transition-colors"
+                  disabled={isSubmitting}
+                  className="px-4 py-2 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-colors flex items-center gap-1.5"
                 >
-                  Create Class & Generate Token
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Creating...
+                    </>
+                  ) : (
+                    'Create Class & Generate Token'
+                  )}
                 </button>
               </div>
             </form>
