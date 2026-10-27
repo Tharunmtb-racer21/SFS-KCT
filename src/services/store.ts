@@ -128,8 +128,15 @@ export class AppDataStore {
     return newProfile;
   }
 
-  public loginUser(email: string): Profile | null {
-    const user = this.profiles.find(p => p.email.toLowerCase() === email.toLowerCase());
+  public getProfiles(): Profile[] {
+    return [...this.profiles];
+  }
+
+  public loginUser(emailOrReg: string): Profile | null {
+    const clean = emailOrReg.trim().toLowerCase();
+    const user = this.profiles.find(
+      p => p.email.toLowerCase() === clean || p.student_reg_no?.toLowerCase() === clean
+    );
     if (user) {
       this.currentUserId = user.id;
       saveToStorage(STORAGE_KEYS.CURRENT_USER_ID, this.currentUserId);

@@ -10,6 +10,7 @@ export interface Profile {
   student_reg_no?: string; // e.g., 717821ECE045
   department?: string; // e.g., Electronics & Communication Engineering
   academic_year?: string; // e.g., 3rd Year / Semester 5
+  section?: string; // e.g., Section A / Section B
   bio?: string;
   skills: string[];
   career_goals?: string;

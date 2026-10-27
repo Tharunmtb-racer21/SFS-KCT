@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
-import { UserRole } from '../types';
+import { UserRole, Profile } from '../types';
 import { 
   GraduationCap, 
   Sparkles, 
@@ -25,6 +25,8 @@ export const AuthPage: React.FC = () => {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
 
   // Sign In Form State
+  const [signInRole, setSignInRole] = useState<'student' | 'mentor'>('student');
+  const [studentIdentifier, setStudentIdentifier] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -40,29 +42,44 @@ export const AuthPage: React.FC = () => {
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.trim()) {
-      setErrorMsg('Please enter your institutional email.');
-      return;
-    }
-
-    if (activeMode === 'production' && !password.trim()) {
-      setErrorMsg('Password is required for production Supabase authentication.');
-      return;
-    }
-
     setIsSubmitting(true);
     setErrorMsg('');
 
     try {
-      const success = await login(email.trim(), password.trim());
-      if (success) {
-        navigate('/');
+      if (signInRole === 'student') {
+        if (!studentIdentifier.trim()) {
+          setErrorMsg('Please enter your Student Register Number (e.g. 25BEI057) or College Email.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const success = await login(studentIdentifier.trim());
+        if (success) {
+          navigate('/student/classes');
+        } else {
+          setErrorMsg(
+            'No student record found with this Register Number or Email. Please make sure you have registered through your class invite link.'
+          );
+        }
       } else {
-        setErrorMsg(
-          activeMode === 'production'
-            ? 'Sign in failed. Please verify your credentials or check your connection.'
-            : 'No demo account found with this email. Use one of the 1-click test personas on the left.'
-        );
+        if (!email.trim()) {
+          setErrorMsg('Please enter your faculty institutional email.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        if (activeMode === 'production' && !password.trim()) {
+          setErrorMsg('Password is required for faculty authentication.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const success = await login(email.trim(), password.trim());
+        if (success) {
+          navigate('/mentor/dashboard');
+        } else {
+          setErrorMsg('Faculty sign in failed. Please verify your email and password.');
+        }
       }
     } catch (err: any) {
       setErrorMsg(err.message || 'Authentication error.');
@@ -78,8 +95,13 @@ export const AuthPage: React.FC = () => {
       return;
     }
 
-    if (activeMode === 'production' && password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters in Production Mode.');
+    if (role === 'student' && !regNo.trim()) {
+      setErrorMsg('Student Register Number is required.');
+      return;
+    }
+
+    if (role === 'mentor' && activeMode === 'production' && password.length < 6) {
+      setErrorMsg('Faculty password must be at least 6 characters in Production Mode.');
       return;
     }
 
@@ -88,12 +110,22 @@ export const AuthPage: React.FC = () => {
 
     try {
       if (activeMode === 'production') {
-        const profile = await supabaseService.signUp(email.trim().toLowerCase(), password, {
-          role,
-          full_name: fullName.trim(),
-          student_reg_no: role === 'student' ? regNo.trim() : undefined,
-          department: department.trim(),
-        });
+        let profile: Profile;
+        if (role === 'student') {
+          profile = await supabaseService.registerStudentWithoutPassword({
+            full_name: fullName.trim(),
+            email: email.trim().toLowerCase(),
+            student_reg_no: regNo.trim().toUpperCase(),
+            department: department.trim(),
+          });
+          localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(profile));
+        } else {
+          profile = await supabaseService.signUp(email.trim().toLowerCase(), password, {
+            role: 'mentor',
+            full_name: fullName.trim(),
+            department: department.trim(),
+          });
+        }
 
         // Upload profile photo if student selected one
         if (avatarFile && role === 'student') {
@@ -115,7 +147,7 @@ export const AuthPage: React.FC = () => {
           role,
           full_name: fullName.trim(),
           email: email.trim().toLowerCase(),
-          student_reg_no: role === 'student' ? regNo.trim() : undefined,
+          student_reg_no: role === 'student' ? regNo.trim().toUpperCase() : undefined,
           department: department.trim(),
           skills: [],
           avatar_url: avatarPreview || undefined,
@@ -276,47 +308,119 @@ export const AuthPage: React.FC = () => {
 
             {mode === 'signin' ? (
               <form onSubmit={handleSignIn} className="space-y-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Institutional Email Address
-                  </label>
-                  <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="email"
-                      required
-                      placeholder="e.g. ramanathan.a.ece@kct.ac.in"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
-                    />
-                  </div>
+                {/* Role Switcher */}
+                <div className="flex items-center bg-slate-100 p-1 rounded-xl mb-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSignInRole('student');
+                      setErrorMsg('');
+                    }}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                      signInRole === 'student'
+                        ? 'bg-white text-navy-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Student Login (Fast)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSignInRole('mentor');
+                      setErrorMsg('');
+                    }}
+                    className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                      signInRole === 'mentor'
+                        ? 'bg-white text-navy-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                  >
+                    Faculty Mentor Sign In
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Password {activeMode === 'demo' && <span className="text-slate-400 font-normal">(Optional in Demo Mode)</span>}
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="password"
-                      placeholder="••••••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
-                    />
-                  </div>
-                </div>
+                {signInRole === 'student' ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Student Register Number or College Email *
+                      </label>
+                      <div className="relative">
+                        <GraduationCap className="w-4 h-4 text-teal-600 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. 25BEI057 or tharun.25ei@kct.ac.in"
+                          value={studentIdentifier}
+                          onChange={(e) => setStudentIdentifier(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs font-mono uppercase focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+                    </div>
 
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
-                >
-                  {isSubmitting ? 'Authenticating...' : 'Sign In to MentorPulse'}
-                  <ArrowRight className="w-3.5 h-3.5 text-teal-400" />
-                </button>
+                    <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[11px] text-emerald-900 leading-relaxed flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>
+                        <strong>No Password Needed:</strong> Instant academic login using your official college roll number or registered email.
+                      </span>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                    >
+                      {isSubmitting ? 'Accessing Workspace...' : 'Enter Student Workspace'}
+                      <ArrowRight className="w-3.5 h-3.5 text-teal-400" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Faculty Institutional Email Address *
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="email"
+                          required
+                          placeholder="e.g. ramanathan.a.ece@kct.ac.in"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Faculty Password *
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••••••"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full py-2.5 bg-navy-900 hover:bg-navy-800 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                    >
+                      {isSubmitting ? 'Authenticating...' : 'Sign In as Faculty Mentor'}
+                      <ArrowRight className="w-3.5 h-3.5 text-teal-400" />
+                    </button>
+                  </div>
+                )}
               </form>
             ) : (
               <form onSubmit={handleSignUp} className="space-y-4">
@@ -357,12 +461,28 @@ export const AuthPage: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Dr. A. Ramanathan or Kavitha Sundaram"
+                    placeholder="e.g. Dr. A. Ramanathan or Tharun N E"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
+
+                {role === 'student' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Student Register / Roll Number *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. 25BEI057"
+                      value={regNo}
+                      onChange={(e) => setRegNo(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono uppercase focus:ring-2 focus:ring-teal-500"
+                    />
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -378,32 +498,26 @@ export const AuthPage: React.FC = () => {
                   />
                 </div>
 
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Password * {activeMode === 'production' && <span className="text-slate-400 font-normal">(Min 6 chars)</span>}
-                  </label>
-                  <input
-                    type="password"
-                    required={activeMode === 'production'}
-                    placeholder="••••••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
-                  />
-                </div>
-
-                {role === 'student' && (
+                {role === 'mentor' ? (
                   <div>
                     <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Student Register / Roll Number *
+                      Password * {activeMode === 'production' && <span className="text-slate-400 font-normal">(Min 6 chars)</span>}
                     </label>
                     <input
-                      type="text"
-                      placeholder="e.g. 717822ECE042"
-                      value={regNo}
-                      onChange={(e) => setRegNo(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono focus:ring-2 focus:ring-teal-500"
+                      type="password"
+                      required={activeMode === 'production'}
+                      placeholder="••••••••••••"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
                     />
+                  </div>
+                ) : (
+                  <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[11px] text-emerald-900 leading-relaxed flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>
+                      <strong>No Password Needed:</strong> Your student account is authenticated by your Register Number (<strong>{regNo || '25BEI...'}</strong>).
+                    </span>
                   </div>
                 )}
 

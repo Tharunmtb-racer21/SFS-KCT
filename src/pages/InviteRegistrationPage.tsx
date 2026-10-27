@@ -11,7 +11,8 @@ import {
   Check, 
   AlertCircle, 
   ArrowRight,
-  Loader2
+  Loader2,
+  CheckCircle2
 } from 'lucide-react';
 import { ProfilePhotoPicker } from '../components/ProfilePhotoPicker';
 import { Footer } from '../components/Footer';
@@ -29,8 +30,10 @@ export const InviteRegistrationPage: React.FC = () => {
   // Registration Form state for unauthenticated student
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [regNo, setRegNo] = useState('');
+  const [department, setDepartment] = useState('');
+  const [academicYear, setAcademicYear] = useState('');
+  const [section, setSection] = useState('A');
   const [phone, setPhone] = useState('');
   const [skillsStr, setSkillsStr] = useState('');
   const [careerGoals, setCareerGoals] = useState('');
@@ -57,6 +60,8 @@ export const InviteRegistrationPage: React.FC = () => {
             setLoadError('Invitation link is invalid, expired, or has been revoked by the faculty mentor.');
           } else {
             setTargetClass(c);
+            setDepartment(c.department || 'Electronics and Instrumentation Engineering');
+            setAcademicYear(c.academic_year || 'Year II / Semester 3');
             const m = await supabaseService.getProfile(c.mentor_id);
             setMentor(m);
           }
@@ -66,6 +71,8 @@ export const InviteRegistrationPage: React.FC = () => {
             setLoadError('Invitation link is invalid, expired, or has been revoked by the faculty mentor.');
           } else {
             setTargetClass(c);
+            setDepartment(c.department || 'Electronics and Instrumentation Engineering');
+            setAcademicYear(c.academic_year || 'Year II / Semester 3');
             const m = appStore.getProfile(c.mentor_id);
             setMentor(m);
           }
@@ -144,16 +151,11 @@ export const InviteRegistrationPage: React.FC = () => {
     }
   };
 
-  // If new student registering through invite link
+  // If new student registering through invite link (NO PASSWORD NEEDED)
   const handleRegisterAndEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim()) {
-      setFormError('Please enter full name and institutional email.');
-      return;
-    }
-
-    if (activeMode === 'production' && password.length < 6) {
-      setFormError('Password must be at least 6 characters in Production Mode.');
+    if (!fullName.trim() || !regNo.trim() || !email.trim()) {
+      setFormError('Please enter Full Name, Student Register Number, and Institutional Email.');
       return;
     }
 
@@ -162,16 +164,20 @@ export const InviteRegistrationPage: React.FC = () => {
 
     try {
       if (activeMode === 'production') {
-        const newStudent = await supabaseService.signUp(email.trim().toLowerCase(), password, {
-          role: 'student',
+        const newStudent = await supabaseService.registerStudentWithoutPassword({
           full_name: fullName.trim(),
-          student_reg_no: regNo.trim() || undefined,
-          department: targetClass.department,
-          academic_year: targetClass.academic_year,
+          student_reg_no: regNo.trim().toUpperCase(),
+          email: email.trim().toLowerCase(),
+          department: department.trim() || targetClass.department,
+          academic_year: academicYear.trim() || targetClass.academic_year,
+          section: section.trim() || undefined,
           phone: phone.trim() || undefined,
           skills: skillsStr.split(',').map(s => s.trim()).filter(Boolean),
           career_goals: careerGoals.trim() || undefined,
         });
+
+        // Store session so student stays logged in across pages
+        localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(newStudent));
 
         // Upload profile photo if selected
         if (avatarFile) {
@@ -195,9 +201,10 @@ export const InviteRegistrationPage: React.FC = () => {
           role: 'student',
           full_name: fullName.trim(),
           email: email.trim().toLowerCase(),
-          student_reg_no: regNo.trim() || undefined,
-          department: targetClass.department,
-          academic_year: targetClass.academic_year,
+          student_reg_no: regNo.trim().toUpperCase(),
+          department: department.trim() || targetClass.department,
+          academic_year: academicYear.trim() || targetClass.academic_year,
+          section: section.trim() || undefined,
           phone: phone.trim() || undefined,
           skills: skillsStr.split(',').map(s => s.trim()).filter(Boolean),
           career_goals: careerGoals.trim() || undefined,
@@ -349,7 +356,7 @@ export const InviteRegistrationPage: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Kavitha Sundaram"
+                    placeholder="e.g. Tharun N E"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
@@ -361,56 +368,72 @@ export const InviteRegistrationPage: React.FC = () => {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. 717822ECE042"
+                    placeholder="e.g. 25BEI057"
                     value={regNo}
                     onChange={(e) => setRegNo(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono focus:ring-2 focus:ring-teal-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-mono uppercase focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Institutional Email *</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="student.22dept@college.ac.in"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Department / Branch *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Electronics and Instrumentation Engineering"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Section *</label>
+                  <select
+                    value={section}
+                    onChange={(e) => setSection(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500 bg-white"
+                  >
+                    <option value="A">Section A</option>
+                    <option value="B">Section B</option>
+                    <option value="C">Section C</option>
+                    <option value="General">General</option>
+                  </select>
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Password * {activeMode === 'production' && <span className="text-slate-400 font-normal">(Min 6 chars)</span>}
-                </label>
-                <input
-                  type="password"
-                  required={activeMode === 'production'}
-                  placeholder="••••••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
-                />
-              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Institutional Email *</label>
+                  <input
+                    type="email"
+                    required
+                    placeholder="tharun.25ei@kct.ac.in"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Contact Phone Number (Private)</label>
-                <input
-                  type="text"
-                  placeholder="+91 98421 XXXXX"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
-                />
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Contact Phone (WhatsApp)</label>
+                  <input
+                    type="text"
+                    placeholder="+91 98421 XXXXX"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Skills / Technical Interests</label>
                 <input
                   type="text"
-                  placeholder="e.g. Python, Verilog, IoT, Embedded Systems"
+                  placeholder="e.g. Battery Management, Embedded Systems, IoT, Robotics"
                   value={skillsStr}
                   onChange={(e) => setSkillsStr(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
@@ -418,14 +441,21 @@ export const InviteRegistrationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Career Goal</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Career Goal / Placement Focus</label>
                 <input
                   type="text"
-                  placeholder="e.g. Core Hardware Engineer or Researcher"
+                  placeholder="e.g. Core Embedded Engineer or Higher Studies"
                   value={careerGoals}
                   onChange={(e) => setCareerGoals(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
                 />
+              </div>
+
+              <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[11px] text-emerald-900 leading-relaxed flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  <strong>No Password Required:</strong> You will be identified by your Student Register Number (<strong>{regNo || '25BEI...'}</strong>) and verified directly by faculty mentor <strong>{mentor?.full_name || 'Assigned Mentor'}</strong>.
+                </span>
               </div>
 
               <div className="p-3 bg-slate-50 rounded-xl text-[11px] text-slate-500 leading-relaxed">

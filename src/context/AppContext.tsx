@@ -185,13 +185,21 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
-  const login = async (email: string, password?: string): Promise<boolean> => {
+  const login = async (emailOrReg: string, password?: string): Promise<boolean> => {
+    const clean = emailOrReg.trim();
     if (activeMode === 'production') {
       try {
         if (!password) {
-          throw new Error('Password is required in Production Mode.');
+          // Attempt student passwordless sign-in by Register Number or Email
+          const student = await supabaseService.signInStudentFast(clean);
+          localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(student));
+          setCurrentUser(student);
+          await refreshData();
+          return true;
         }
-        await supabaseService.signIn(email, password);
+
+        // Faculty or password-based sign-in
+        await supabaseService.signIn(clean, password);
         await refreshData();
         return true;
       } catch (err: any) {
@@ -200,8 +208,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       }
     }
 
-    // Demo Mode: Mock Login by institutional email
-    const user = appStore.loginUser(email);
+    // Demo Mode: Mock Login by institutional email or reg no
+    const cleanLower = clean.toLowerCase();
+    const demoProfiles = appStore.getProfiles();
+    const found = demoProfiles.find(
+      p => p.email.toLowerCase() === cleanLower || p.student_reg_no?.toLowerCase() === cleanLower
+    );
+    if (found) {
+      appStore.setCurrentUser(found.id);
+      refreshData();
+      return true;
+    }
+
+    const user = appStore.loginUser(clean);
     if (user) {
       refreshData();
       return true;
@@ -210,6 +229,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   const logout = async () => {
+    localStorage.removeItem('mentorpulse_auth_profile');
     if (activeMode === 'production') {
       try {
         await supabaseService.signOut();

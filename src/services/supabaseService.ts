@@ -90,6 +90,138 @@ export class SupabaseService {
     return newProfile;
   }
 
+  // --- Student Registration (Passwordless / Institutional Identity) ---
+  public async registerStudentWithoutPassword(
+    studentData: {
+      full_name: string;
+      email: string;
+      student_reg_no: string;
+      department: string;
+      academic_year?: string;
+      section?: string;
+      phone?: string;
+      skills?: string[];
+      career_goals?: string;
+      bio?: string;
+    }
+  ): Promise<Profile> {
+    const client = this.ensureClient();
+    const cleanReg = studentData.student_reg_no.trim().toUpperCase();
+    const cleanEmail = studentData.email.trim().toLowerCase();
+    const internalPassword = `KCT#${cleanReg.replace(/[^a-zA-Z0-9]/g, '')}!2026`;
+
+    let userId: string | null = null;
+
+    // 1. Try Supabase Auth signup
+    try {
+      const { data: authData, error: authError } = await client.auth.signUp({
+        email: cleanEmail,
+        password: internalPassword,
+        options: {
+          data: {
+            role: 'student',
+            full_name: studentData.full_name,
+            student_reg_no: cleanReg,
+            department: studentData.department,
+          },
+        },
+      });
+
+      if (!authError && authData.user) {
+        userId = authData.user.id;
+      }
+    } catch {
+      // Ignored: fallback to lookup or sign in
+    }
+
+    // 2. Try sign-in if account exists
+    if (!userId) {
+      try {
+        const { data: signInData } = await client.auth.signInWithPassword({
+          email: cleanEmail,
+          password: internalPassword,
+        });
+        if (signInData?.user) {
+          userId = signInData.user.id;
+        }
+      } catch {
+        // Ignored
+      }
+    }
+
+    // 3. Fallback: check existing profile or generate UUID
+    if (!userId) {
+      const { data: existing } = await client
+        .from('profiles')
+        .select('id')
+        .or(`email.eq.${cleanEmail},student_reg_no.eq.${cleanReg}`)
+        .maybeSingle();
+
+      if (existing) {
+        userId = existing.id;
+      }
+    }
+
+    const finalUserId = userId || crypto.randomUUID();
+
+    const bioFormatted = studentData.section
+      ? `${studentData.department} • ${studentData.academic_year || ''} (Section ${studentData.section})`
+      : `${studentData.department} • ${studentData.academic_year || ''}`;
+
+    const newProfile: Profile = {
+      id: finalUserId,
+      role: 'student',
+      full_name: studentData.full_name.trim(),
+      email: cleanEmail,
+      phone: studentData.phone?.trim() || undefined,
+      student_reg_no: cleanReg,
+      department: studentData.department,
+      academic_year: studentData.academic_year,
+      section: studentData.section,
+      bio: studentData.bio || bioFormatted,
+      skills: studentData.skills || [],
+      career_goals: studentData.career_goals?.trim() || undefined,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error: profileError } = await client.from('profiles').upsert(newProfile);
+    if (profileError) {
+      console.warn('Profile upsert note:', profileError);
+    }
+
+    return newProfile;
+  }
+
+  public async signInStudentFast(regNoOrEmail: string): Promise<Profile> {
+    const client = this.ensureClient();
+    const query = regNoOrEmail.trim();
+
+    const { data, error } = await client
+      .from('profiles')
+      .select('*')
+      .or(`student_reg_no.ilike.${query},email.ilike.${query}`)
+      .eq('role', 'student')
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!data) {
+      throw new Error(`No student found with Roll/Register Number or Email "${query}". Please verify your details or sign up through your class invitation link.`);
+    }
+
+    const internalPassword = `KCT#${data.student_reg_no?.replace(/[^a-zA-Z0-9]/g, '')}!2026`;
+    try {
+      await client.auth.signInWithPassword({
+        email: data.email,
+        password: internalPassword,
+      });
+    } catch {
+      // Background session notice
+    }
+
+    return data;
+  }
+
   public async signIn(email: string, password: string): Promise<Profile> {
     const client = this.ensureClient();
     const { data, error } = await client.auth.signInWithPassword({
@@ -351,33 +483,59 @@ export class SupabaseService {
     if (!targetClass) throw new Error('Class does not exist.');
 
     const initialStatus = targetClass.requires_approval ? 'pending' : 'approved';
+    const nowIso = new Date().toISOString();
 
-    const { data, error } = await client
-      .from('class_enrollments')
-      .upsert({
-        class_id: classId,
-        student_id: studentId,
-        status: initialStatus,
-        requested_at: new Date().toISOString(),
-        reviewed_at: targetClass.requires_approval ? null : new Date().toISOString(),
-      }, { onConflict: 'class_id,student_id' })
-      .select()
-      .single();
+    const enrollmentPayload = {
+      class_id: classId,
+      student_id: studentId,
+      status: initialStatus,
+      requested_at: nowIso,
+      reviewed_at: targetClass.requires_approval ? null : nowIso,
+    };
 
-    if (error) throw new Error(error.message);
+    let resultData: any = null;
+    try {
+      const { data, error } = await client
+        .from('class_enrollments')
+        .upsert(enrollmentPayload, { onConflict: 'class_id,student_id' })
+        .select()
+        .maybeSingle();
 
-    // Notify mentor if pending
-    if (initialStatus === 'pending') {
-      const student = await this.getProfile(studentId);
-      await client.from('notifications').insert({
-        user_id: targetClass.mentor_id,
-        title: 'New Student Registration Pending',
-        message: `${student?.full_name || 'A student'} requested to join ${targetClass.name}.`,
-        link: `/mentor/students?tab=pending`,
-      });
+      if (!error && data) {
+        resultData = data;
+      }
+    } catch {
+      // Fallback
     }
 
-    return data;
+    if (!resultData) {
+      const { error: insErr } = await client
+        .from('class_enrollments')
+        .upsert(enrollmentPayload, { onConflict: 'class_id,student_id' });
+      if (insErr) throw new Error(insErr.message);
+
+      resultData = {
+        id: 'enr-' + Date.now(),
+        ...enrollmentPayload,
+      };
+    }
+
+    // Notify mentor if pending (wrapped in try/catch so notification permission never blocks enrollment)
+    if (initialStatus === 'pending') {
+      try {
+        const student = await this.getProfile(studentId);
+        await client.from('notifications').insert({
+          user_id: targetClass.mentor_id,
+          title: 'New Student Registration Pending',
+          message: `${student?.full_name || 'A student'} requested to join ${targetClass.name}.`,
+          link: `/mentor/students?tab=pending`,
+        });
+      } catch (notifErr) {
+        console.warn('Mentor notification notice:', notifErr);
+      }
+    }
+
+    return resultData;
   }
 
   public async reviewEnrollment(enrollmentId: string, status: EnrollmentStatus, mentorId: string): Promise<ClassEnrollment> {
