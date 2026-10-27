@@ -1,6 +1,6 @@
 -- =============================================================================
 -- MentorPulse - Student Progress Hub
--- Migration 002: Storage Buckets & Policies for Safe Attachments
+-- Migration 002: Storage Buckets & Policies for Safe Attachments (Idempotent)
 -- =============================================================================
 
 -- Create private bucket for student progress attachments (certificates, proofs, photos, reports)
@@ -15,6 +15,12 @@ VALUES (
 ON CONFLICT (id) DO UPDATE SET
     public = false,
     file_size_limit = 26214400;
+
+-- Drop existing policies if they already exist to allow safe re-runs
+DROP POLICY IF EXISTS "Students upload own attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Students read own attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Mentors read class student attachments" ON storage.objects;
+DROP POLICY IF EXISTS "Students delete own attachments" ON storage.objects;
 
 -- STORAGE POLICIES:
 -- 1. Students can upload files into folder named after their student ID: "{student_id}/*"
