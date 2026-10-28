@@ -352,3 +352,76 @@ BEGIN
         ALTER PUBLICATION supabase_realtime ADD TABLE public.post_feedback;
     END IF;
 END $$;
+
+-- 5. FACULTY REACTION PERMISSIVENESS & COMPATIBILITY
+-- Ensure constraint accepts both emojis ('🔥', '👏', '💡') and legacy terms ('WOW', 'Great', 'Excellent', 'Appreciate')
+ALTER TABLE public.post_reactions DROP CONSTRAINT IF EXISTS post_reactions_reaction_type_check;
+ALTER TABLE public.post_reactions ADD CONSTRAINT post_reactions_reaction_type_check
+    CHECK (reaction_type IN ('🔥', '👏', '💡', 'WOW', 'Great', 'Excellent', 'Appreciate'));
+
+-- Permissive RLS so reactions work seamlessly across mobile, web, and active mentor sessions
+DROP POLICY IF EXISTS "Allow public reactions insert" ON public.post_reactions;
+DROP POLICY IF EXISTS "Allow public reactions select" ON public.post_reactions;
+DROP POLICY IF EXISTS "Allow public reactions delete" ON public.post_reactions;
+DROP POLICY IF EXISTS "Allow public reactions update" ON public.post_reactions;
+
+CREATE POLICY "Allow public reactions insert" ON public.post_reactions FOR INSERT WITH CHECK (true);
+CREATE POLICY "Allow public reactions select" ON public.post_reactions FOR SELECT USING (true);
+CREATE POLICY "Allow public reactions delete" ON public.post_reactions FOR DELETE USING (true);
+CREATE POLICY "Allow public reactions update" ON public.post_reactions FOR UPDATE USING (true) WITH CHECK (true);
+
+-- Atomic Zero-Error Function to toggle post reactions
+CREATE OR REPLACE FUNCTION public.toggle_post_reaction(
+    p_post_id UUID,
+    p_user_id UUID,
+    p_reaction_type TEXT
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, auth
+AS $$
+DECLARE
+    v_clean_type TEXT := TRIM(p_reaction_type);
+    v_canonical_type TEXT;
+    v_existing_id UUID;
+    v_existing_type TEXT;
+BEGIN
+    IF v_clean_type IN ('🔥', 'WOW') THEN
+        v_canonical_type := 'WOW';
+    ELSIF v_clean_type IN ('👏', 'Great', 'Appreciate') THEN
+        v_canonical_type := 'Great';
+    ELSIF v_clean_type IN ('💡', 'Excellent') THEN
+        v_canonical_type := 'Excellent';
+    ELSE
+        v_canonical_type := v_clean_type;
+    END IF;
+
+    SELECT id, reaction_type INTO v_existing_id, v_existing_type
+    FROM public.post_reactions
+    WHERE post_id = p_post_id AND user_id = p_user_id
+    LIMIT 1;
+
+    IF v_existing_id IS NOT NULL THEN
+        IF v_existing_type = v_canonical_type OR 
+           (v_existing_type IN ('🔥', 'WOW') AND v_canonical_type = 'WOW') OR
+           (v_existing_type IN ('👏', 'Great', 'Appreciate') AND v_canonical_type = 'Great') OR
+           (v_existing_type IN ('💡', 'Excellent') AND v_canonical_type = 'Excellent') THEN
+            DELETE FROM public.post_reactions WHERE id = v_existing_id;
+            RETURN json_build_object('success', true, 'action', 'removed', 'post_id', p_post_id);
+        ELSE
+            UPDATE public.post_reactions 
+            SET reaction_type = v_canonical_type
+            WHERE id = v_existing_id;
+            RETURN json_build_object('success', true, 'action', 'updated', 'post_id', p_post_id, 'reaction_type', v_canonical_type);
+        END IF;
+    ELSE
+        INSERT INTO public.post_reactions (post_id, user_id, reaction_type)
+        VALUES (p_post_id, p_user_id, v_canonical_type);
+        RETURN json_build_object('success', true, 'action', 'added', 'post_id', p_post_id, 'reaction_type', v_canonical_type);
+    END IF;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.toggle_post_reaction TO anon, authenticated;
+

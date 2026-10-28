@@ -1113,7 +1113,38 @@ export class SupabaseService {
 
   public async reactToPost(postId: string, userId: string, reactionType: ReactionType): Promise<void> {
     const client = this.ensureClient();
-    // Check existing
+
+    // 1. Try calling the zero-friction PostgreSQL RPC if present
+    try {
+      const { data: rpcRes, error: rpcErr } = await client.rpc('toggle_post_reaction', {
+        p_post_id: postId,
+        p_user_id: userId,
+        p_reaction_type: reactionType,
+      });
+      if (!rpcErr && rpcRes && rpcRes.success) {
+        return;
+      }
+    } catch {
+      // Fall through to resilient table-level logic
+    }
+
+    // 2. Canonical mapping between emojis and database check constraint values
+    const normalizeType = (r: string): string => {
+      const map: Record<string, string> = {
+        '🔥': 'WOW',
+        'WOW': 'WOW',
+        '👏': 'Great',
+        'Great': 'Great',
+        'Appreciate': 'Great',
+        '💡': 'Excellent',
+        'Excellent': 'Excellent',
+      };
+      return map[r] || r;
+    };
+
+    const canonicalType = normalizeType(reactionType);
+
+    // 3. Query existing reaction by this user on this post
     const { data: existing } = await client
       .from('post_reactions')
       .select('*')
@@ -1122,21 +1153,47 @@ export class SupabaseService {
       .maybeSingle();
 
     if (existing) {
-      if (existing.reaction_type === reactionType) {
-        // Toggle off
-        await client.from('post_reactions').delete().eq('id', existing.id);
+      const existingCanonical = normalizeType(existing.reaction_type);
+      if (existingCanonical === canonicalType) {
+        // Toggle OFF (delete reaction)
+        const { error: delErr } = await client.from('post_reactions').delete().eq('id', existing.id);
+        if (delErr) throw new Error(delErr.message);
       } else {
-        // Change reaction
-        await client.from('post_reactions').update({ reaction_type: reactionType }).eq('id', existing.id);
+        // Change reaction (update)
+        let { error: updErr } = await client
+          .from('post_reactions')
+          .update({ reaction_type: canonicalType })
+          .eq('id', existing.id);
+
+        if (updErr && updErr.code === '23514') {
+          // If check constraint expects the raw emoji
+          const { error: emojiUpdErr } = await client
+            .from('post_reactions')
+            .update({ reaction_type: reactionType })
+            .eq('id', existing.id);
+          if (emojiUpdErr) throw new Error(emojiUpdErr.message);
+        } else if (updErr) {
+          throw new Error(updErr.message);
+        }
       }
     } else {
-      // Insert
-      const { error } = await client.from('post_reactions').insert({
+      // Insert new reaction (try canonical first, fallback to raw emoji)
+      let { error: insErr } = await client.from('post_reactions').insert({
         post_id: postId,
         user_id: userId,
-        reaction_type: reactionType,
+        reaction_type: canonicalType,
       });
-      if (error) throw new Error(error.message);
+
+      if (insErr && insErr.code === '23514') {
+        const { error: emojiInsErr } = await client.from('post_reactions').insert({
+          post_id: postId,
+          user_id: userId,
+          reaction_type: reactionType,
+        });
+        if (emojiInsErr) throw new Error(emojiInsErr.message);
+      } else if (insErr) {
+        throw new Error(insErr.message);
+      }
     }
   }
 

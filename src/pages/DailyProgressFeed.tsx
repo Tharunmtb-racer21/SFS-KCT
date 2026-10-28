@@ -419,9 +419,45 @@ export const DailyProgressFeed: React.FC = () => {
 
   const handleReaction = async (postId: string, reactionType: ReactionType) => {
     if (!isMentor) {
-      // University policy: Reactions can only be awarded by faculty mentors
+      alert('Faculty reactions can only be awarded by faculty mentors.');
       return;
     }
+
+    // Optimistic UI update
+    setPosts((prev) =>
+      prev.map((post) => {
+        if (post.id !== postId) return post;
+        const list = post.reactions || [];
+        const isMatch = (rType: string) => {
+          if (rType === reactionType) return true;
+          if (reactionType === '🔥' && rType === 'WOW') return true;
+          if (reactionType === '👏' && (rType === 'Great' || rType === 'Appreciate')) return true;
+          if (reactionType === '💡' && rType === 'Excellent') return true;
+          return false;
+        };
+
+        const existingReaction = list.find((r) => r.user_id === currentUser.id);
+        let updatedReactions;
+
+        if (existingReaction && isMatch(existingReaction.reaction_type)) {
+          updatedReactions = list.filter((r) => r.user_id !== currentUser.id);
+        } else {
+          updatedReactions = [
+            ...list.filter((r) => r.user_id !== currentUser.id),
+            {
+              id: 'temp-' + Date.now(),
+              post_id: postId,
+              user_id: currentUser.id,
+              reaction_type: reactionType,
+              created_at: new Date().toISOString(),
+            },
+          ];
+        }
+
+        return { ...post, reactions: updatedReactions };
+      })
+    );
+
     try {
       if (activeMode === 'production') {
         await supabaseService.reactToPost(postId, currentUser.id, reactionType);
@@ -431,6 +467,7 @@ export const DailyProgressFeed: React.FC = () => {
       await loadPosts();
     } catch (err: any) {
       console.error('Reaction error:', err);
+      await loadPosts();
     }
   };
 
