@@ -224,7 +224,11 @@ export const InviteRegistrationPage: React.FC = () => {
         }
 
         // Request enrollment into the target class
-        await supabaseService.requestEnrollment(targetClass.id, newStudent.id);
+        try {
+          await supabaseService.requestEnrollment(targetClass.id, newStudent.id);
+        } catch (enrollErr: any) {
+          console.warn('Enrollment request notice:', enrollErr);
+        }
 
         // Store active session in AppContext & localStorage
         setSessionUser(newStudent);

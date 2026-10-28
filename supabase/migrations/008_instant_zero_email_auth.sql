@@ -165,23 +165,61 @@ DECLARE
     v_encrypted_pw TEXT;
     v_internal_pw TEXT := 'KCT#' || REGEXP_REPLACE(v_clean_reg, '[^a-zA-Z0-9]', '', 'g') || '!2026';
 BEGIN
-    -- Check if student already exists in profiles
-    SELECT id INTO v_user_id FROM public.profiles 
-    WHERE LOWER(email) = v_clean_email OR student_reg_no = v_clean_reg 
-    LIMIT 1;
+    -- 1. Check if student already exists in auth.users or profiles
+    SELECT id INTO v_user_id FROM auth.users WHERE LOWER(email) = v_clean_email LIMIT 1;
 
-    IF v_user_id IS NOT NULL THEN
-        -- Update profile
-        UPDATE public.profiles SET
-            full_name = v_clean_name,
-            department = v_clean_dept,
-            updated_at = NOW()
-        WHERE id = v_user_id;
-
-        RETURN json_build_object('success', true, 'user_id', v_user_id, 'email', v_clean_email, 'role', 'student');
+    IF v_user_id IS NULL THEN
+        SELECT id INTO v_user_id FROM public.profiles 
+        WHERE LOWER(email) = v_clean_email OR student_reg_no = v_clean_reg 
+        LIMIT 1;
     END IF;
 
-    -- Generate new user ID
+    IF v_user_id IS NOT NULL THEN
+        -- Auto-confirm and align internal password
+        v_encrypted_pw := extensions.crypt(v_internal_pw, extensions.gen_salt('bf'));
+
+        UPDATE auth.users SET
+            encrypted_password = v_encrypted_pw,
+            email_confirmed_at = COALESCE(email_confirmed_at, NOW()),
+            updated_at = NOW(),
+            raw_user_meta_data = json_build_object(
+                'full_name', v_clean_name, 
+                'role', 'student', 
+                'student_reg_no', v_clean_reg, 
+                'department', v_clean_dept
+            )::jsonb
+        WHERE id = v_user_id;
+
+        -- Ensure auth.identities
+        INSERT INTO auth.identities (
+            id, user_id, identity_data, provider, provider_id, last_sign_in_at, created_at, updated_at
+        ) VALUES (
+            v_user_id, v_user_id, json_build_object('sub', v_user_id::text, 'email', v_clean_email)::jsonb,
+            'email', v_user_id::text, NOW(), NOW(), NOW()
+        ) ON CONFLICT (provider, provider_id) DO NOTHING;
+
+        -- Upsert profile
+        INSERT INTO public.profiles (
+            id, role, full_name, email, student_reg_no, department, skills, updated_at
+        ) VALUES (
+            v_user_id, 'student', v_clean_name, v_clean_email, v_clean_reg, v_clean_dept, '{}'::text[], NOW()
+        ) ON CONFLICT (id) DO UPDATE SET
+            full_name = EXCLUDED.full_name,
+            student_reg_no = EXCLUDED.student_reg_no,
+            department = EXCLUDED.department,
+            role = 'student',
+            updated_at = NOW();
+
+        RETURN json_build_object(
+            'success', true, 
+            'user_id', v_user_id, 
+            'email', v_clean_email, 
+            'role', 'student',
+            'message', 'Student account verified and updated.'
+        );
+    END IF;
+
+    -- 2. New user: Generate new user ID
     v_user_id := gen_random_uuid();
     v_encrypted_pw := extensions.crypt(v_internal_pw, extensions.gen_salt('bf'));
 
@@ -241,9 +279,9 @@ BEGIN
         NOW(),
         NOW(),
         NOW()
-    );
+    ) ON CONFLICT (provider, provider_id) DO NOTHING;
 
-    -- Insert into public.profiles
+    -- Upsert into public.profiles (WITH ON CONFLICT to accommodate triggers)
     INSERT INTO public.profiles (
         id,
         role,
@@ -264,7 +302,12 @@ BEGIN
         '{}'::text[],
         NOW(),
         NOW()
-    );
+    ) ON CONFLICT (id) DO UPDATE SET
+        full_name = EXCLUDED.full_name,
+        student_reg_no = EXCLUDED.student_reg_no,
+        department = EXCLUDED.department,
+        role = 'student',
+        updated_at = NOW();
 
     RETURN json_build_object(
         'success', true,
