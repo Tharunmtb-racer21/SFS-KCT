@@ -157,13 +157,7 @@ export class SupabaseService {
         err.code = 'invalid_passcode';
         throw err;
       }
-      // If RPC function not found in DB, fallback to signUp
-      const result = await this.signUp(cleanEmail, password, {
-        role: 'mentor',
-        full_name: fullName.trim(),
-        department: department.trim(),
-      });
-      return result.profile;
+      throw new Error(`Faculty registration error: ${rpcError.message}`);
     }
 
     // 2. Automatically sign in with the newly created and confirmed credentials

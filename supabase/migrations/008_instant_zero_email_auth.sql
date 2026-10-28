@@ -2,7 +2,7 @@
 -- This migration allows faculties and students to register and sign in immediately
 -- with 0 emails sent, 0 rate limits, and 100% database-level security.
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto" WITH SCHEMA extensions;
 
 -- Function to register faculty with institutional passcode and direct instant activation
 CREATE OR REPLACE FUNCTION public.register_faculty_instant(
@@ -15,7 +15,7 @@ CREATE OR REPLACE FUNCTION public.register_faculty_instant(
 RETURNS JSONB 
 LANGUAGE plpgsql 
 SECURITY DEFINER 
-SET search_path = ''
+SET search_path = public, extensions, auth
 AS $$
 DECLARE
     v_user_id UUID;
@@ -46,9 +46,9 @@ BEGIN
         RAISE EXCEPTION 'An account with this institutional email already exists. Please sign in.';
     END IF;
 
-    -- 5. Generate user ID and bcrypt hash
+    -- 5. Generate user ID and bcrypt hash via extensions.crypt & extensions.gen_salt
     v_user_id := gen_random_uuid();
-    v_encrypted_pw := crypt(p_password, gen_salt('bf', 10));
+    v_encrypted_pw := extensions.crypt(p_password, extensions.gen_salt('bf'));
 
     -- 6. Insert directly into auth.users with email_confirmed_at = NOW() (NO EMAILS DISPATCHED)
     INSERT INTO auth.users (
@@ -154,7 +154,7 @@ CREATE OR REPLACE FUNCTION public.register_student_instant(
 RETURNS JSONB 
 LANGUAGE plpgsql 
 SECURITY DEFINER 
-SET search_path = ''
+SET search_path = public, extensions, auth
 AS $$
 DECLARE
     v_user_id UUID;
@@ -183,7 +183,7 @@ BEGIN
 
     -- Generate new user ID
     v_user_id := gen_random_uuid();
-    v_encrypted_pw := crypt(v_internal_pw, gen_salt('bf', 10));
+    v_encrypted_pw := extensions.crypt(v_internal_pw, extensions.gen_salt('bf'));
 
     -- Insert into auth.users (Pre-confirmed NOW(), NO EMAIL SENT)
     INSERT INTO auth.users (
