@@ -251,6 +251,7 @@ export const AuthPage: React.FC = () => {
             department: cleanDept,
           });
           localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(profile));
+          switchUser(profile.id);
 
           if (avatarFile) {
             try {
@@ -272,6 +273,7 @@ export const AuthPage: React.FC = () => {
           );
 
           localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(mentorProfile));
+          switchUser(mentorProfile.id);
           navigate('/mentor/dashboard');
         }
       } else {
