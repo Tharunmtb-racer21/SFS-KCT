@@ -6,7 +6,8 @@ import {
   WeeklyReport,
   NotificationItem,
   EnrollmentStatus,
-  ReactionType
+  ReactionType,
+  DirectMessage
 } from '../types';
 import {
   INITIAL_PROFILES,
@@ -25,6 +26,7 @@ const STORAGE_KEYS = {
   WEEKLY_REPORTS: 'mentorpulse_weekly_reports_v1',
   NOTIFICATIONS: 'mentorpulse_notifications_v1',
   POST_COMMENTS: 'mentorpulse_post_comments_v1',
+  MESSAGES: 'mentorpulse_messages_v1',
   CURRENT_USER_ID: 'mentorpulse_current_user_id_v1',
   CURRENT_CLASS_ID: 'mentorpulse_current_class_id_v1',
 };
@@ -58,6 +60,7 @@ export class AppDataStore {
   private weeklyReports: WeeklyReport[];
   private notifications: NotificationItem[];
   private postComments: any[];
+  private messages: DirectMessage[];
   private currentUserId: string;
   private currentClassId: string | null;
 
@@ -69,6 +72,7 @@ export class AppDataStore {
     this.weeklyReports = loadFromStorage(STORAGE_KEYS.WEEKLY_REPORTS, INITIAL_WEEKLY_REPORTS);
     this.notifications = loadFromStorage(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
     this.postComments = loadFromStorage(STORAGE_KEYS.POST_COMMENTS, []);
+    this.messages = loadFromStorage(STORAGE_KEYS.MESSAGES, []);
     this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER_ID, 'mentor-1');
     this.currentClassId = loadFromStorage(STORAGE_KEYS.CURRENT_CLASS_ID, 'class-ece-2024');
   }
@@ -82,6 +86,7 @@ export class AppDataStore {
     this.weeklyReports = [...INITIAL_WEEKLY_REPORTS];
     this.notifications = [...INITIAL_NOTIFICATIONS];
     this.postComments = [];
+    this.messages = [];
     this.currentUserId = 'mentor-1';
     this.currentClassId = 'class-ece-2024';
 
@@ -92,6 +97,7 @@ export class AppDataStore {
     saveToStorage(STORAGE_KEYS.WEEKLY_REPORTS, this.weeklyReports);
     saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
     saveToStorage(STORAGE_KEYS.POST_COMMENTS, this.postComments);
+    saveToStorage(STORAGE_KEYS.MESSAGES, this.messages);
     saveToStorage(STORAGE_KEYS.CURRENT_USER_ID, this.currentUserId);
     saveToStorage(STORAGE_KEYS.CURRENT_CLASS_ID, this.currentClassId);
   }
@@ -344,6 +350,10 @@ export class AppDataStore {
       saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
     }
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mentorpulse:enrollment_update', { detail: newEnrollment }));
+    }
+
     return newEnrollment;
   }
 
@@ -375,6 +385,10 @@ export class AppDataStore {
     });
     saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mentorpulse:enrollment_update', { detail: this.enrollments[index] }));
+    }
+
     return this.enrollments[index];
   }
 
@@ -401,6 +415,11 @@ export class AppDataStore {
 
     saveToStorage(STORAGE_KEYS.ENROLLMENTS, this.enrollments);
     saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('mentorpulse:enrollment_update', { detail: { classId, count: pending.length } }));
+    }
+
     return pending.length;
   }
 
@@ -746,6 +765,77 @@ export class AppDataStore {
       if (n.user_id === userId) n.read = true;
     });
     saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+  }
+
+  // --- Direct Mentoring Messages ---
+  public getMessagesForConversation(conversationId: string): DirectMessage[] {
+    return this.messages
+      .filter((m) => m.conversation_id === conversationId)
+      .map((m) => ({
+        ...m,
+        sender: this.profiles.find((p) => p.id === m.sender_id),
+        recipient: this.profiles.find((p) => p.id === m.recipient_id),
+      }))
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  }
+
+  public sendMessage(payload: {
+    conversation_id: string;
+    class_id?: string;
+    sender_id: string;
+    recipient_id: string;
+    content: string;
+  }): DirectMessage {
+    if (!payload.content || !payload.content.trim()) {
+      throw new Error('Message content cannot be empty');
+    }
+
+    const newMessage: DirectMessage = {
+      id: 'msg-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      conversation_id: payload.conversation_id,
+      class_id: payload.class_id,
+      sender_id: payload.sender_id,
+      recipient_id: payload.recipient_id,
+      content: payload.content.trim(),
+      status: 'delivered',
+      created_at: new Date().toISOString(),
+      read_at: null,
+      sender: this.profiles.find((p) => p.id === payload.sender_id),
+      recipient: this.profiles.find((p) => p.id === payload.recipient_id),
+    };
+
+    this.messages.push(newMessage);
+    saveToStorage(STORAGE_KEYS.MESSAGES, this.messages);
+
+    // Create notification for recipient
+    const sender = newMessage.sender;
+    this.notifications.push({
+      id: 'notif-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+      user_id: payload.recipient_id,
+      title: 'New Mentoring Message',
+      message: `${sender?.full_name || 'Sender'}: "${payload.content.slice(0, 35)}${payload.content.length > 35 ? '...' : ''}"`,
+      link: sender?.role === 'student' ? `/mentor/students` : `/student/feed`,
+      read: false,
+      created_at: new Date().toISOString(),
+    });
+    saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+
+    return newMessage;
+  }
+
+  public markMessagesAsRead(conversationId: string, currentUserId: string): void {
+    let changed = false;
+    const now = new Date().toISOString();
+    this.messages.forEach((m) => {
+      if (m.conversation_id === conversationId && m.recipient_id === currentUserId && m.status !== 'read') {
+        m.status = 'read';
+        m.read_at = now;
+        changed = true;
+      }
+    });
+    if (changed) {
+      saveToStorage(STORAGE_KEYS.MESSAGES, this.messages);
+    }
   }
 
   // --- Safe CSV Export for Mentor ---

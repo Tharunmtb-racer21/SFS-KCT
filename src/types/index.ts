@@ -151,3 +151,19 @@ export interface NotificationItem {
   read: boolean;
   created_at: string;
 }
+
+export type MessageStatus = 'sending' | 'sent' | 'delivered' | 'read' | 'failed';
+
+export interface DirectMessage {
+  id: string;
+  conversation_id: string;
+  class_id?: string;
+  sender_id: string;
+  recipient_id: string;
+  content: string;
+  status: MessageStatus;
+  created_at: string;
+  read_at?: string | null;
+  sender?: Profile;
+  recipient?: Profile;
+}

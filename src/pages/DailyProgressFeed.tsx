@@ -3,6 +3,8 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { MentoringChatModal } from '../components/MentoringChatModal';
 import { ReactionType, DailyPost } from '../types';
 import { 
   Rss, 
@@ -91,6 +93,10 @@ export const DailyProgressFeed: React.FC = () => {
   const [openComments, setOpenComments] = useState<{ [postId: string]: boolean }>({});
   const [submittingComment, setSubmittingComment] = useState<{ [postId: string]: boolean }>({});
 
+  // 1-on-1 Mentoring Chat Modal state
+  const [isMentorChatOpen, setIsMentorChatOpen] = useState(false);
+  const [selectedChatStudentId, setSelectedChatStudentId] = useState<string | null>(null);
+
   // Auto-save composer draft so refreshing never loses entered progress text
   useEffect(() => {
     if (!activeClass || !currentUser) return;
@@ -163,6 +169,54 @@ export const DailyProgressFeed: React.FC = () => {
 
   useEffect(() => {
     loadPosts();
+
+    // Active live-sync interval for mobile and background synchronization
+    const pollInterval = setInterval(() => {
+      loadPosts();
+    }, 3500);
+
+    let channel: any = null;
+    if (activeMode === 'production' && supabase && isSupabaseConfigured && activeClass?.id) {
+      const channelName = `feed_realtime_${activeClass.id}_${Date.now()}`;
+      channel = supabase
+        .channel(channelName)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'post_comments' },
+          () => {
+            loadPosts();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'post_reactions' },
+          () => {
+            loadPosts();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'post_feedback' },
+          () => {
+            loadPosts();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'daily_posts', filter: `class_id=eq.${activeClass.id}` },
+          () => {
+            loadPosts();
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      clearInterval(pollInterval);
+      if (channel && supabase) {
+        supabase.removeChannel(channel);
+      }
+    };
   }, [activeClass?.id, activeMode, currentUser?.id]);
 
   if (!currentUser) {
@@ -503,6 +557,13 @@ export const DailyProgressFeed: React.FC = () => {
               <CalendarCheck className="w-3.5 h-3.5 text-teal-400" />
               Submit Weekly Report
             </Link>
+            <button
+              onClick={() => setIsMentorChatOpen(true)}
+              className="px-3.5 py-2 bg-teal-600 hover:bg-teal-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Message Mentor
+            </button>
           </div>
         </div>
       )}
@@ -1215,6 +1276,28 @@ export const DailyProgressFeed: React.FC = () => {
             );
           })}
         </div>
+      )}
+
+      {/* Direct Mentoring Chat Modal (Student -> Mentor) */}
+      {isMentorChatOpen && currentUser && activeClass && (
+        <MentoringChatModal
+          isOpen={isMentorChatOpen}
+          onClose={() => setIsMentorChatOpen(false)}
+          targetStudentId={currentUser.id}
+          classId={activeClass.id}
+          studentName={currentUser.full_name}
+        />
+      )}
+
+      {/* Direct Mentoring Chat Modal (Mentor -> Selected Student) */}
+      {selectedChatStudentId && activeClass && (
+        <MentoringChatModal
+          isOpen={Boolean(selectedChatStudentId)}
+          onClose={() => setSelectedChatStudentId(null)}
+          targetStudentId={selectedChatStudentId}
+          classId={activeClass.id}
+          studentName={posts.find((p) => p.student_id === selectedChatStudentId)?.student?.full_name || 'Student'}
+        />
       )}
     </div>
   );

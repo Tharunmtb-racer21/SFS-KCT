@@ -15,18 +15,21 @@ import {
   Mail, 
   UserX,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  MessageSquare
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { MentoringChatModal } from '../components/MentoringChatModal';
 
 export const StudentDirectory: React.FC = () => {
-  const { currentUser, activeClass, refreshData, activeMode } = useApp();
+  const { currentUser, activeClass, refreshData, activeMode, enrollmentVersion, triggerEnrollmentUpdate } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const [enrollments, setEnrollments] = useState<(ClassEnrollment & { student: Profile })[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [activeChatStudent, setActiveChatStudent] = useState<Profile | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'approved' | 'pending'>(
@@ -67,7 +70,11 @@ export const StudentDirectory: React.FC = () => {
 
   useEffect(() => {
     loadEnrollments();
-  }, [activeClass?.id, activeMode]);
+    const interval = setInterval(() => {
+      loadEnrollments();
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [activeClass?.id, activeMode, enrollmentVersion]);
 
   if (!currentUser || currentUser.role !== 'mentor') {
     return <div className="p-8 text-center text-slate-600">Access restricted to mentors.</div>;
@@ -92,7 +99,7 @@ export const StudentDirectory: React.FC = () => {
         appStore.reviewEnrollment(enrollmentId, 'approved', currentUser.id);
       }
       await loadEnrollments();
-      await refreshData();
+      triggerEnrollmentUpdate();
     } catch (err: any) {
       alert(`Approval failed: ${err.message}`);
     }
@@ -107,7 +114,7 @@ export const StudentDirectory: React.FC = () => {
         appStore.reviewEnrollment(enrollmentId, 'rejected', currentUser.id);
       }
       await loadEnrollments();
-      await refreshData();
+      triggerEnrollmentUpdate();
     } catch (err: any) {
       alert(`Decline failed: ${err.message}`);
     }
@@ -129,7 +136,7 @@ export const StudentDirectory: React.FC = () => {
         appStore.approveAllPendingEnrollments(activeClass.id, currentUser.id);
       }
       await loadEnrollments();
-      await refreshData();
+      triggerEnrollmentUpdate();
     } catch (err: any) {
       console.error('Failed to approve all students:', err);
       setErrorMsg(err.message || 'Failed to approve all pending students.');
@@ -418,19 +425,40 @@ export const StudentDirectory: React.FC = () => {
                       </button>
                     </div>
                   ) : (
-                    <button
-                      onClick={() => navigate(`/mentor/students/${student.id}`)}
-                      className="w-full py-1.5 bg-navy-50 hover:bg-navy-100 text-navy-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                    >
-                      View Student Journey & Timeline
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </button>
+                    <div className="flex items-center gap-2 w-full">
+                      <button
+                        onClick={() => navigate(`/mentor/students/${student.id}`)}
+                        className="flex-1 py-1.5 bg-navy-50 hover:bg-navy-100 text-navy-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                      >
+                        Student Journey
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setActiveChatStudent(student)}
+                        className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-teal-200"
+                        title={`Send direct message to ${student.full_name}`}
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-teal-700" />
+                        Message
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
             );
           })}
         </div>
+      )}
+
+      {/* Direct Mentoring Chat Modal */}
+      {activeChatStudent && activeClass && (
+        <MentoringChatModal
+          isOpen={Boolean(activeChatStudent)}
+          onClose={() => setActiveChatStudent(null)}
+          targetStudentId={activeChatStudent.id}
+          classId={activeClass.id}
+          studentName={activeChatStudent.full_name}
+        />
       )}
     </div>
   );

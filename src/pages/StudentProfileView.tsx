@@ -18,8 +18,10 @@ import {
   Clock, 
   Send,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  MessageSquare
 } from 'lucide-react';
+import { MentoringChatModal } from '../components/MentoringChatModal';
 
 const REACTION_CONFIG: { type: ReactionType; emoji: string; label: string; aliases: string[] }[] = [
   { type: '🔥', emoji: '🔥', label: 'Inspiring', aliases: ['🔥', 'WOW'] },
@@ -37,6 +39,7 @@ export const StudentProfileView: React.FC = () => {
   const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const [feedbackText, setFeedbackText] = useState<{ [postId: string]: string }>({});
   const [submittingPostId, setSubmittingPostId] = useState<string | null>(null);
@@ -196,6 +199,13 @@ export const StudentProfileView: React.FC = () => {
             <span className="text-[11px] text-slate-400">
               {dailyPosts.length} posts &bull; {weeklyReports.length} reports
             </span>
+            <button
+              onClick={() => setIsChatOpen(true)}
+              className="mt-1 px-3 py-1.5 bg-teal-700 hover:bg-teal-800 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Direct Message Student
+            </button>
           </div>
         </div>
 
@@ -428,6 +438,17 @@ export const StudentProfileView: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Direct Mentoring Chat Modal */}
+      {isChatOpen && student && activeClass && (
+        <MentoringChatModal
+          isOpen={isChatOpen}
+          onClose={() => setIsChatOpen(false)}
+          targetStudentId={student.id}
+          classId={activeClass.id}
+          studentName={student.full_name}
+        />
+      )}
     </div>
   );
 };

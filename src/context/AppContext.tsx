@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { Profile, ClassGroup, NotificationItem } from '../types';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
-import { isSupabaseConfigured } from '../lib/supabase';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 export type AppMode = 'production' | 'demo';
 
@@ -17,6 +17,8 @@ interface AppContextType {
   productionError: string | null;
   isLoading: boolean;
   isAuthLoading: boolean;
+  enrollmentVersion: number;
+  triggerEnrollmentUpdate: () => void;
   setActiveMode: (mode: AppMode) => void;
   clearProductionError: () => void;
   setActiveClassId: (id: string | null) => void;
@@ -45,6 +47,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [productionError, setProductionError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [enrollmentVersion, setEnrollmentVersion] = useState<number>(0);
 
   const [currentUser, setCurrentUser] = useState<Profile | null>(() => {
     if (initialMode === 'demo') {
@@ -173,9 +176,119 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     }
   };
 
+  const triggerEnrollmentUpdate = () => {
+    setEnrollmentVersion((v) => v + 1);
+    refreshData();
+    try {
+      localStorage.setItem('mentorpulse_cross_tab_enrollment', Date.now().toString());
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('mentorpulse_enrollment_bus');
+        bc.postMessage({ type: 'ENROLLMENT_UPDATE', time: Date.now() });
+        bc.close();
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     refreshData();
-  }, [activeMode]);
+
+    // 1. Listen for local / Demo Mode enrollment updates
+    const handleEnrollmentEvent = () => {
+      setEnrollmentVersion((v) => v + 1);
+      refreshData();
+    };
+    window.addEventListener('mentorpulse:enrollment_update', handleEnrollmentEvent);
+
+    // Cross-tab and cross-window sync
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('mentorpulse_enrollment_bus');
+        bc.onmessage = () => {
+          setEnrollmentVersion((v) => v + 1);
+          refreshData();
+        };
+      } catch {}
+    }
+
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === 'mentorpulse_cross_tab_enrollment') {
+        setEnrollmentVersion((v) => v + 1);
+        refreshData();
+      }
+    };
+    window.addEventListener('storage', handleStorageEvent);
+
+    // 2. Realtime Subscriptions in Production Mode
+    let authSubscription: any = null;
+    let enrollmentChannel: any = null;
+    let notifChannel: any = null;
+
+    if (activeMode === 'production' && supabase && isSupabaseConfigured) {
+      // Auth state changes
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          if (session?.user) {
+            const profile = await supabaseService.getCurrentSessionUser();
+            if (profile) {
+              setCurrentUser(profile);
+              localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(profile));
+            }
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setCurrentUser(null);
+          localStorage.removeItem('mentorpulse_auth_profile');
+        }
+      });
+      authSubscription = subscription;
+
+      // Realtime enrollment table changes (updates both student & faculty screens instantly)
+      const channelId = `realtime_enrollments_${Date.now()}`;
+      enrollmentChannel = supabase
+        .channel(channelId)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'class_enrollments' },
+          () => {
+            setEnrollmentVersion((v) => v + 1);
+            refreshData();
+          }
+        )
+        .subscribe();
+
+      // Realtime notifications for logged-in user
+      if (currentUser?.id) {
+        const notifChannelId = `realtime_notifs_${currentUser.id}_${Date.now()}`;
+        notifChannel = supabase
+          .channel(notifChannelId)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${currentUser.id}`,
+            },
+            (payload) => {
+              if (payload.new) {
+                const newNotif = payload.new as NotificationItem;
+                setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== newNotif.id)]);
+              }
+            }
+          )
+          .subscribe();
+      }
+    }
+
+    return () => {
+      window.removeEventListener('mentorpulse:enrollment_update', handleEnrollmentEvent);
+      window.removeEventListener('storage', handleStorageEvent);
+      if (bc) bc.close();
+      if (authSubscription) authSubscription.unsubscribe();
+      if (enrollmentChannel && supabase) supabase.removeChannel(enrollmentChannel);
+      if (notifChannel && supabase) supabase.removeChannel(notifChannel);
+    };
+  }, [activeMode, currentUser?.id]);
 
   const setActiveClassId = (id: string | null) => {
     appStore.setSelectedClassId(id);
@@ -201,24 +314,19 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const login = async (emailOrReg: string, password?: string): Promise<boolean> => {
     const clean = emailOrReg.trim();
     if (activeMode === 'production') {
-      try {
-        if (!password) {
-          // Attempt student passwordless sign-in by Register Number or Email
-          const student = await supabaseService.signInStudentFast(clean);
-          localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(student));
-          setCurrentUser(student);
-          await refreshData();
-          return true;
-        }
-
-        // Faculty or password-based sign-in
-        await supabaseService.signIn(clean, password);
+      if (!password) {
+        // Attempt student passwordless sign-in by Register Number or Email
+        const student = await supabaseService.signInStudentFast(clean);
+        localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(student));
+        setCurrentUser(student);
         await refreshData();
         return true;
-      } catch (err: any) {
-        setProductionError(`Sign In Failed: ${err.message}`);
-        return false;
       }
+
+      // Faculty or password-based sign-in
+      await supabaseService.signIn(clean, password);
+      await refreshData();
+      return true;
     }
 
     // Demo Mode: Mock Login by institutional email or reg no
@@ -238,7 +346,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       refreshData();
       return true;
     }
-    return false;
+    throw new Error(`No user record found for "${clean}". Please verify your credentials or register.`);
   };
 
   const logout = async () => {
@@ -322,6 +430,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         productionError,
         isLoading,
         isAuthLoading,
+        enrollmentVersion,
+        triggerEnrollmentUpdate,
         setActiveMode,
         clearProductionError,
         setActiveClassId,

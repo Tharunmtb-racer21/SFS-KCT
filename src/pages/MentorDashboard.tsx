@@ -21,7 +21,7 @@ import { FacultyAnalytics } from '../components/FacultyAnalytics';
 import { computeClassAnalytics, TimeRangeOption } from '../utils/analyticsUtils';
 
 export const MentorDashboard: React.FC = () => {
-  const { currentUser, activeClass, classes, setActiveClassId, activeMode } = useApp();
+  const { currentUser, activeClass, classes, setActiveClassId, activeMode, enrollmentVersion } = useApp();
   const navigate = useNavigate();
 
   const [enrollments, setEnrollments] = useState<(ClassEnrollment & { student: Profile })[]>([]);
@@ -74,7 +74,11 @@ export const MentorDashboard: React.FC = () => {
 
   useEffect(() => {
     loadDashboardData();
-  }, [activeClass?.id, activeMode]);
+    const interval = setInterval(() => {
+      loadDashboardData();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [activeClass?.id, activeMode, enrollmentVersion]);
 
   const analytics = useMemo(() => {
     return computeClassAnalytics(enrollments, classPosts, classWeeklyReports, timeRange, overdueDays);

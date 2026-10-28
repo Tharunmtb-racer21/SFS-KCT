@@ -8,8 +8,17 @@ import {
   NotificationItem, 
   EnrollmentStatus, 
   ReactionType,
-  PostComment 
+  PostComment,
+  DirectMessage 
 } from '../types';
+import { appStore } from './store';
+
+export interface AuthSignUpResult {
+  profile: Profile;
+  session: any;
+  user: any;
+  emailConfirmationRequired: boolean;
+}
 
 export class SupabaseService {
   public get isConfigured(): boolean {
@@ -53,25 +62,43 @@ export class SupabaseService {
       skills?: string[];
       career_goals?: string;
     }
-  ): Promise<Profile> {
+  ): Promise<AuthSignUpResult> {
     const client = this.ensureClient();
+    const cleanEmail = email.trim().toLowerCase();
     const { data: authData, error: authError } = await client.auth.signUp({
-      email,
+      email: cleanEmail,
       password,
       options: {
         data: profileData,
       },
     });
 
-    if (authError) throw new Error(authError.message);
-    if (!authData.user) throw new Error('User registration failed.');
+    if (authError) {
+      const err: any = new Error(authError.message);
+      err.code = (authError as any).code || (authError as any).error_code;
+      err.status = authError.status;
+      throw err;
+    }
+    if (!authData.user) throw new Error('User registration failed: no user returned.');
+
+    // If user already exists in auth.users, Supabase returns identities: []
+    if (authData.user.identities && authData.user.identities.length === 0) {
+      const err: any = new Error(
+        'An account with this institutional email is already registered. If unconfirmed, please check your inbox or request a new confirmation email.'
+      );
+      err.code = 'user_already_exists';
+      err.status = 400;
+      throw err;
+    }
+
+    const emailConfirmationRequired = !authData.session;
 
     // Upsert into public.profiles
     const newProfile: Profile = {
       id: authData.user.id,
       role: profileData.role,
       full_name: profileData.full_name,
-      email,
+      email: cleanEmail,
       phone: profileData.phone,
       student_reg_no: profileData.student_reg_no,
       department: profileData.department,
@@ -82,12 +109,84 @@ export class SupabaseService {
       updated_at: new Date().toISOString(),
     };
 
-    const { error: profileError } = await client.from('profiles').upsert(newProfile);
-    if (profileError) {
+    try {
+      const { data: pData, error: profileError } = await client
+        .from('profiles')
+        .upsert(newProfile)
+        .select()
+        .maybeSingle();
+      if (!profileError && pData) {
+        return { profile: pData, session: authData.session, user: authData.user, emailConfirmationRequired };
+      }
+    } catch (profileError) {
       console.warn('Profile upsert warning:', profileError);
     }
 
-    return newProfile;
+    return { profile: newProfile, session: authData.session, user: authData.user, emailConfirmationRequired };
+  }
+
+  // --- Instant Faculty Registration (Zero Emails, Zero Rate Limit) ---
+  public async registerFacultyInstant(
+    email: string,
+    password: string,
+    fullName: string,
+    department: string,
+    passcode: string
+  ): Promise<Profile> {
+    const client = this.ensureClient();
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Try calling the PostgreSQL RPC function (zero-email instant creation)
+    const { data: rpcData, error: rpcError } = await client.rpc('register_faculty_instant', {
+      p_email: cleanEmail,
+      p_password: password,
+      p_full_name: fullName.trim(),
+      p_department: department.trim(),
+      p_passcode: passcode.trim(),
+    });
+
+    if (rpcError) {
+      console.warn('RPC register_faculty_instant notice:', rpcError.message);
+      if (rpcError.message.includes('already exists')) {
+        const err: any = new Error('An account with this institutional email already exists. Please sign in.');
+        err.code = 'user_already_exists';
+        throw err;
+      }
+      if (rpcError.message.includes('Invalid faculty passcode')) {
+        const err: any = new Error('Invalid Faculty Access Passcode. Contact KCT administrator.');
+        err.code = 'invalid_passcode';
+        throw err;
+      }
+      // If RPC function not found in DB, fallback to signUp
+      const result = await this.signUp(cleanEmail, password, {
+        role: 'mentor',
+        full_name: fullName.trim(),
+        department: department.trim(),
+      });
+      return result.profile;
+    }
+
+    // 2. Automatically sign in with the newly created and confirmed credentials
+    try {
+      await client.auth.signInWithPassword({
+        email: cleanEmail,
+        password,
+      });
+    } catch (signInErr) {
+      console.warn('Auto sign-in notice:', signInErr);
+    }
+
+    const profile = await this.getProfile(rpcData.user_id);
+    return profile || {
+      id: rpcData.user_id,
+      role: 'mentor',
+      full_name: fullName.trim(),
+      email: cleanEmail,
+      department: department.trim(),
+      skills: [],
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
   }
 
   // --- Student Registration (Passwordless / Institutional Identity) ---
@@ -254,19 +353,94 @@ export class SupabaseService {
 
   public async signIn(email: string, password: string): Promise<Profile> {
     const client = this.ensureClient();
+    const cleanEmail = email.trim().toLowerCase();
     const { data, error } = await client.auth.signInWithPassword({
-      email,
+      email: cleanEmail,
       password,
     });
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      const err: any = new Error(error.message);
+      err.code = (error as any).code || (error as any).error_code;
+      err.status = error.status;
+      throw err;
+    }
     if (!data.user) throw new Error('Sign in failed: no user returned.');
 
-    const profile = await this.getProfile(data.user.id);
+    let profile = await this.getProfile(data.user.id);
     if (!profile) {
-      throw new Error('Profile not found in database for this authenticated user.');
+      // Self-healing profile recovery from user_metadata
+      const meta = data.user.user_metadata || {};
+      const fallbackProfile: Profile = {
+        id: data.user.id,
+        role: (meta.role as any) || 'mentor',
+        full_name: meta.full_name || cleanEmail.split('@')[0],
+        email: cleanEmail,
+        department: meta.department || 'Electronics and Communication Engineering',
+        student_reg_no: meta.student_reg_no,
+        academic_year: meta.academic_year,
+        skills: meta.skills || [],
+        created_at: data.user.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      try {
+        const { data: recovered } = await client.from('profiles').upsert(fallbackProfile).select().maybeSingle();
+        if (recovered) profile = recovered;
+      } catch (recErr) {
+        console.warn('Failed self-healing profile recovery:', recErr);
+      }
+    }
+
+    if (!profile) {
+      throw new Error('Profile record could not be loaded for this authenticated user.');
     }
     return profile;
+  }
+
+  public async resendConfirmationEmail(email: string): Promise<void> {
+    const client = this.ensureClient();
+    const cleanEmail = email.trim().toLowerCase();
+    const { error } = await client.auth.resend({
+      type: 'signup',
+      email: cleanEmail,
+    });
+
+    if (error) {
+      const err: any = new Error(error.message);
+      err.code = (error as any).code || (error as any).error_code;
+      err.status = error.status;
+      throw err;
+    }
+  }
+
+  public async resetPasswordForEmail(email: string, redirectTo?: string): Promise<void> {
+    const client = this.ensureClient();
+    const cleanEmail = email.trim().toLowerCase();
+    const redirect = redirectTo || `${window.location.origin}/auth?mode=recovery`;
+    const { error } = await client.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo: redirect,
+    });
+
+    if (error) {
+      const err: any = new Error(error.message);
+      err.code = (error as any).code || (error as any).error_code;
+      err.status = error.status;
+      throw err;
+    }
+  }
+
+  public async updateUserPassword(newPassword: string): Promise<void> {
+    const client = this.ensureClient();
+    const { error } = await client.auth.updateUser({
+      password: newPassword,
+    });
+
+    if (error) {
+      const err: any = new Error(error.message);
+      err.code = (error as any).code || (error as any).error_code;
+      err.status = error.status;
+      throw err;
+    }
   }
 
   public async signOut(): Promise<void> {
@@ -701,7 +875,7 @@ export class SupabaseService {
       if (!err.message?.includes('post_comments')) throw err;
     }
 
-    // Graceful fallback if post_comments table is pending execution in remote DB
+    // Graceful fallback: fetch posts then hydrate comments resiliently
     const { data, error } = await client
       .from('daily_posts')
       .select(`
@@ -714,7 +888,43 @@ export class SupabaseService {
       .order('created_at', { ascending: false });
 
     if (error) throw new Error(error.message);
-    return (data || []).map((p: any) => ({ ...p, comments: [] }));
+    const posts = data || [];
+    if (posts.length === 0) return [];
+
+    // Attempt direct post_comments query
+    const postIds = posts.map((p: any) => p.id);
+    let commentsByPost: { [key: string]: any[] } = {};
+    try {
+      const { data: commentsData } = await client
+        .from('post_comments')
+        .select('*')
+        .in('post_id', postIds)
+        .order('created_at', { ascending: true });
+
+      if (commentsData && commentsData.length > 0) {
+        const userIds = [...new Set(commentsData.map((c: any) => c.user_id))];
+        const { data: users } = await client.from('profiles').select('*').in('id', userIds);
+        const userMap = new Map((users || []).map((u: any) => [u.id, u]));
+        commentsData.forEach((c: any) => {
+          const withUser = { ...c, user: userMap.get(c.user_id) };
+          if (!commentsByPost[c.post_id]) commentsByPost[c.post_id] = [];
+          commentsByPost[c.post_id].push(withUser);
+        });
+      }
+    } catch {
+      // If remote table not available, check local appStore
+      posts.forEach((p: any) => {
+        const demoPost = appStore.getDailyPostsForClass(classId).find(dp => dp.id === p.id);
+        if (demoPost?.comments) {
+          commentsByPost[p.id] = demoPost.comments;
+        }
+      });
+    }
+
+    return posts.map((p: any) => ({
+      ...p,
+      comments: commentsByPost[p.id] || [],
+    }));
   }
 
   public async getDailyPostsForStudent(studentId: string, classId?: string): Promise<DailyPost[]> {
@@ -758,42 +968,100 @@ export class SupabaseService {
 
     const { data, error } = await query.order('created_at', { ascending: false });
     if (error) throw new Error(error.message);
-    return (data || []).map((p: any) => ({ ...p, comments: [] }));
+    const posts = data || [];
+    if (posts.length === 0) return [];
+
+    const postIds = posts.map((p: any) => p.id);
+    let commentsByPost: { [key: string]: any[] } = {};
+    try {
+      const { data: commentsData } = await client
+        .from('post_comments')
+        .select('*')
+        .in('post_id', postIds)
+        .order('created_at', { ascending: true });
+
+      if (commentsData && commentsData.length > 0) {
+        const userIds = [...new Set(commentsData.map((c: any) => c.user_id))];
+        const { data: users } = await client.from('profiles').select('*').in('id', userIds);
+        const userMap = new Map((users || []).map((u: any) => [u.id, u]));
+        commentsData.forEach((c: any) => {
+          const withUser = { ...c, user: userMap.get(c.user_id) };
+          if (!commentsByPost[c.post_id]) commentsByPost[c.post_id] = [];
+          commentsByPost[c.post_id].push(withUser);
+        });
+      }
+    } catch {
+      posts.forEach((p: any) => {
+        const demoPost = appStore.getDailyPostsForStudent(studentId, classId).find(dp => dp.id === p.id);
+        if (demoPost?.comments) {
+          commentsByPost[p.id] = demoPost.comments;
+        }
+      });
+    }
+
+    return posts.map((p: any) => ({
+      ...p,
+      comments: commentsByPost[p.id] || [],
+    }));
   }
 
   public async addPostComment(postId: string, userId: string, content: string): Promise<PostComment> {
     const client = this.ensureClient();
-    const { data, error } = await client
-      .from('post_comments')
-      .insert({
-        post_id: postId,
-        user_id: userId,
-        content: content.trim(),
-      })
-      .select('*, user:profiles(*)')
-      .single();
+    try {
+      const { data, error } = await client
+        .from('post_comments')
+        .insert({
+          post_id: postId,
+          user_id: userId,
+          content: content.trim(),
+        })
+        .select('*')
+        .single();
 
-    if (error) throw new Error(`Comment failed: ${error.message}`);
+      if (error) {
+        if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+          console.warn('post_comments not in remote DB schema cache yet; saving in appStore fallback');
+          return appStore.addPostComment(postId, userId, content);
+        }
+        throw new Error(`Comment failed: ${error.message}`);
+      }
 
-    // Notify post author if comment is from another user
-    const { data: post } = await client.from('daily_posts').select('student_id, title').eq('id', postId).single();
-    if (post && post.student_id !== userId) {
-      const commenter = await this.getProfile(userId);
-      await client.from('notifications').insert({
-        user_id: post.student_id,
-        title: 'New Comment on Progress Post',
-        message: `${commenter?.full_name || 'A classmate'} commented on "${post.title.substring(0, 30)}..."`,
-        link: '/student/feed',
-      });
+      const user = await this.getProfile(userId);
+      const commentWithUser = { ...data, user: user || undefined };
+
+      // Notify post author if comment is from another user
+      try {
+        const { data: post } = await client.from('daily_posts').select('student_id, title').eq('id', postId).single();
+        if (post && post.student_id !== userId) {
+          const commenter = user;
+          await client.from('notifications').insert({
+            user_id: post.student_id,
+            title: 'New Comment on Progress Post',
+            message: `${commenter?.full_name || 'A classmate'} commented on "${post.title.substring(0, 30)}..."`,
+            link: '/student/feed',
+          });
+        }
+      } catch (notifErr) {
+        console.warn('Comment notification notice:', notifErr);
+      }
+
+      return commentWithUser;
+    } catch (err: any) {
+      if (err.message?.includes('post_comments') || err.message?.includes('schema cache')) {
+        return appStore.addPostComment(postId, userId, content);
+      }
+      throw err;
     }
-
-    return data;
   }
 
   public async deletePostComment(commentId: string, userId: string): Promise<void> {
     const client = this.ensureClient();
-    const { error } = await client.from('post_comments').delete().eq('id', commentId);
-    if (error) throw new Error(error.message);
+    try {
+      const { error } = await client.from('post_comments').delete().eq('id', commentId);
+      if (error && !error.message?.includes('post_comments')) throw new Error(error.message);
+    } catch (err: any) {
+      appStore.deletePostComment(commentId, userId);
+    }
   }
 
   public async createDailyPost(postData: Omit<DailyPost, 'id' | 'created_at' | 'updated_at' | 'reactions' | 'feedback'>): Promise<DailyPost> {
@@ -1202,6 +1470,273 @@ export class SupabaseService {
     const client = this.ensureClient();
     const { error } = await client.from('notifications').update({ read: true }).eq('user_id', userId);
     if (error) throw new Error(error.message);
+  }
+
+  // --- Direct Student-Faculty Mentoring Messages ---
+  public async getMessages(conversationId: string): Promise<DirectMessage[]> {
+    const client = this.ensureClient();
+    try {
+      const { data, error } = await client
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: true });
+
+      if (error) {
+        if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+          console.warn('messages table not yet in live DB; returning local store messages');
+          return appStore.getMessagesForConversation(conversationId);
+        }
+        throw new Error(error.message);
+      }
+
+      if (!data || data.length === 0) return [];
+
+      // Hydrate profiles for sender and recipient
+      const userIds = [...new Set(data.flatMap((m: any) => [m.sender_id, m.recipient_id]).filter(Boolean))];
+      const { data: profiles } = await client
+        .from('profiles')
+        .select('*')
+        .in('id', userIds);
+
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+      return data.map((m: any) => ({
+        ...m,
+        sender: profileMap.get(m.sender_id),
+        recipient: profileMap.get(m.recipient_id),
+      }));
+    } catch (err: any) {
+      if (err.message?.includes('messages') || err.message?.includes('schema cache')) {
+        return appStore.getMessagesForConversation(conversationId);
+      }
+      throw err;
+    }
+  }
+
+  public async sendMessage(payload: {
+    conversation_id: string;
+    class_id?: string;
+    sender_id: string;
+    recipient_id: string;
+    content: string;
+  }): Promise<DirectMessage> {
+    if (!payload.content || !payload.content.trim()) {
+      throw new Error('Message content cannot be empty.');
+    }
+
+    const client = this.ensureClient();
+    const insertPayload = {
+      conversation_id: payload.conversation_id,
+      class_id: payload.class_id,
+      sender_id: payload.sender_id,
+      recipient_id: payload.recipient_id,
+      content: payload.content.trim(),
+      status: 'sent',
+      created_at: new Date().toISOString(),
+    };
+
+    try {
+      const { data, error } = await client
+        .from('messages')
+        .insert(insertPayload)
+        .select()
+        .single();
+
+      if (error) {
+        if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+          console.warn('messages table not yet in live DB; falling back to appStore');
+          return appStore.sendMessage(payload);
+        }
+        throw new Error(error.message);
+      }
+
+      // Hydrate sender & recipient
+      const senderProfile = await this.getProfile(payload.sender_id);
+      const recipientProfile = await this.getProfile(payload.recipient_id);
+
+      // Create notification for recipient
+      try {
+        await client.from('notifications').insert({
+          user_id: payload.recipient_id,
+          title: 'New Mentoring Message',
+          message: `${senderProfile?.full_name || 'Someone'}: "${payload.content.slice(0, 35)}${payload.content.length > 35 ? '...' : ''}"`,
+          link: senderProfile?.role === 'student' ? `/mentor/students` : `/student/feed`,
+        });
+      } catch (notifErr) {
+        console.warn('Message notification insert notice:', notifErr);
+      }
+
+      return {
+        ...data,
+        sender: senderProfile || undefined,
+        recipient: recipientProfile || undefined,
+      };
+    } catch (err: any) {
+      if (err.message?.includes('messages') || err.message?.includes('schema cache')) {
+        return appStore.sendMessage(payload);
+      }
+      throw err;
+    }
+  }
+
+  public async markMessagesAsRead(conversationId: string, currentUserId: string): Promise<void> {
+    const client = this.ensureClient();
+    try {
+      const { error } = await client
+        .from('messages')
+        .update({ status: 'read', read_at: new Date().toISOString() })
+        .eq('conversation_id', conversationId)
+        .eq('recipient_id', currentUserId)
+        .neq('status', 'read');
+
+      if (error && !error.message?.includes('messages')) {
+        throw new Error(error.message);
+      }
+    } catch (err: any) {
+      // Fallback
+      appStore.markMessagesAsRead(conversationId, currentUserId);
+    }
+  }
+
+  // --- Realtime Subscriptions ---
+  public subscribeToMessages(
+    conversationId: string,
+    onNewMessage: (msg: DirectMessage) => void,
+    onStatusUpdate?: (msg: DirectMessage) => void
+  ): () => void {
+    if (!supabase || !isSupabaseConfigured) return () => {};
+    const client = supabase;
+
+    const channelName = `messages_${conversationId}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          if (payload.new) {
+            const raw = payload.new as any;
+            const sender = await this.getProfile(raw.sender_id);
+            const recipient = await this.getProfile(raw.recipient_id);
+            onNewMessage({
+              ...raw,
+              sender: sender || undefined,
+              recipient: recipient || undefined,
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        async (payload) => {
+          if (payload.new && onStatusUpdate) {
+            const raw = payload.new as any;
+            const sender = await this.getProfile(raw.sender_id);
+            const recipient = await this.getProfile(raw.recipient_id);
+            onStatusUpdate({
+              ...raw,
+              sender: sender || undefined,
+              recipient: recipient || undefined,
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (client) client.removeChannel(channel);
+    };
+  }
+
+  public subscribeToClassEnrollments(classId: string, onChange: (payload: any) => void): () => void {
+    if (!supabase || !isSupabaseConfigured) return () => {};
+    const client = supabase;
+
+    const channelName = `enrollments_class_${classId}_${Date.now()}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'class_enrollments',
+          filter: `class_id=eq.${classId}`,
+        },
+        (payload) => {
+          onChange(payload);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (client) client.removeChannel(channel);
+    };
+  }
+
+  public subscribeToStudentEnrollments(studentId: string, onChange: (payload: any) => void): () => void {
+    if (!supabase || !isSupabaseConfigured) return () => {};
+    const client = supabase;
+
+    const channelName = `enrollments_student_${studentId}_${Date.now()}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'class_enrollments',
+          filter: `student_id=eq.${studentId}`,
+        },
+        (payload) => {
+          onChange(payload);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (client) client.removeChannel(channel);
+    };
+  }
+
+  public subscribeToNotifications(userId: string, onNewNotif: (notif: NotificationItem) => void): () => void {
+    if (!supabase || !isSupabaseConfigured) return () => {};
+    const client = supabase;
+
+    const channelName = `notifs_${userId}_${Date.now()}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${userId}`,
+        },
+        (payload) => {
+          if (payload.new) {
+            onNewNotif(payload.new as NotificationItem);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (client) client.removeChannel(channel);
+    };
   }
 }
 

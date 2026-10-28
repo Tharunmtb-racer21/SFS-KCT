@@ -10,12 +10,14 @@ import {
   ExternalLink, 
   Calendar, 
   AlertCircle,
-  Loader2
+  Loader2,
+  MessageSquare
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { MentoringChatModal } from '../components/MentoringChatModal';
 
 export const StudentClassesPage: React.FC = () => {
-  const { currentUser, setActiveClassId, refreshData, activeMode } = useApp();
+  const { currentUser, setActiveClassId, refreshData, activeMode, enrollmentVersion, triggerEnrollmentUpdate } = useApp();
   const navigate = useNavigate();
 
   const [enrollments, setEnrollments] = useState<(ClassEnrollment & { class: ClassGroup })[]>([]);
@@ -26,6 +28,7 @@ export const StudentClassesPage: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeChatClass, setActiveChatClass] = useState<ClassGroup | null>(null);
 
   const loadStudentClasses = async () => {
     if (!currentUser) return;
@@ -49,7 +52,7 @@ export const StudentClassesPage: React.FC = () => {
 
   useEffect(() => {
     loadStudentClasses();
-  }, [currentUser?.id, activeMode]);
+  }, [currentUser?.id, activeMode, enrollmentVersion]);
 
   if (!currentUser) {
     return <div className="p-8 text-center text-slate-500">Please sign in to view your classes.</div>;
@@ -90,7 +93,7 @@ export const StudentClassesPage: React.FC = () => {
       }
 
       await loadStudentClasses();
-      await refreshData();
+      triggerEnrollmentUpdate();
       setInviteTokenInput('');
 
       if (enrollment.status === 'approved') {
@@ -237,16 +240,24 @@ export const StudentClassesPage: React.FC = () => {
                 </div>
 
                 {isApproved && (
-                  <div className="mt-4 pt-3 border-t border-slate-100">
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center gap-2">
                     <button
                       onClick={() => {
                         setActiveClassId(c.id);
                         navigate('/student/feed');
                       }}
-                      className="w-full py-1.5 bg-navy-50 hover:bg-navy-100 text-navy-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                      className="flex-1 py-1.5 bg-navy-50 hover:bg-navy-100 text-navy-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
                     >
-                      Open Class Progress Stream
+                      Open Progress Stream
                       <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setActiveChatClass(c)}
+                      className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-teal-200"
+                      title="Direct message faculty mentor"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-teal-700" />
+                      Mentor Chat
                     </button>
                   </div>
                 )}
@@ -254,6 +265,17 @@ export const StudentClassesPage: React.FC = () => {
             );
           })}
         </div>
+      )}
+
+      {/* Direct Mentoring Chat Modal */}
+      {activeChatClass && (
+        <MentoringChatModal
+          isOpen={Boolean(activeChatClass)}
+          onClose={() => setActiveChatClass(null)}
+          targetStudentId={currentUser.id}
+          classId={activeChatClass.id}
+          studentName={currentUser.full_name}
+        />
       )}
     </div>
   );
