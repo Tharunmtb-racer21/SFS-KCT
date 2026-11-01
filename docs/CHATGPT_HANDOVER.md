@@ -1,119 +1,58 @@
 # MentorPulse — Student Progress Hub: Technical Handover & Production Audit Report
 
-> **Document Version:** 1.7.0  
-> **Date:** October 28, 2026  
-> **Status:** Student/Faculty Direct Messaging + Instant Class Joining & Approval Verified  
+> **Document Version:** 1.9.0  
+> **Date:** October 29, 2026  
+> **Status:** Student Removal from Class + Portal Flickering Elimination + Dedicated Realtime Messaging Inbox Verified  
 > **Author:** Antigravity Autonomous Senior Full-Stack Engineer  
 
 ---
 
 ## 1. Executive Summary & Root Cause Diagnoses
 
-Two major production issues were diagnosed, traced through the live database and source code, and resolved:
+Three critical UX and realtime portal issues were identified, diagnosed, traced through the source code and database, and comprehensively resolved:
 
-### BUG 1: Student/Faculty Messages Not Reliably Received or Displayed
+### ISSUE 1: Faculty Must Be Able to Remove a Particular Student from a Class
 - **Root Causes:**
-  1. **Schema Cache Gap:** The live Supabase database lacked the `public.messages` table and had an uncommitted `public.post_comments` table (`PGRST205: Could not find the table 'public.post_comments' in the schema cache`).
-  2. **Silent Degradation in Service:** In `supabaseService.ts`, when PostgREST failed to join `post_comments`, the error was caught and fell back to mapping all posts to `comments: []`, permanently stripping comments and guidance.
-  3. **No Direct 1-on-1 Channel:** The application had feed post comments and report feedback, but lacked a dedicated 1-on-1 direct messaging modal with deterministic conversation thread IDs (`conv_${classId}_${studentId}`) and Realtime delivery.
+  1. The database CHECK constraint on `class_enrollments.status` was restricted to `('pending', 'approved', 'rejected')`. A student removal attempt lacked a dedicated status and audit trail.
+  2. The student directory lacked a dedicated, labeled removal action and confirmation workflow.
+  3. Student profile views lacked authorization enforcement and removal consequence communication.
 - **Resolution:**
-  - Authored Migration `007_messaging_and_realtime.sql` creating `public.messages` with indexes, strict RLS, and Realtime publications.
-  - Implemented `MentoringChatModal.tsx` providing end-to-end messaging with delivery indicators (`sent` $\rightarrow$ `delivered` $\rightarrow$ `read`), draft retention upon network error, disabled submit while sending, and Realtime sync.
-  - Upgraded `getDailyPostsForClass` and `getDailyPostsForStudent` with decoupled two-tier comment hydration, guaranteeing comments never clear or fail silently.
+  - Authored Migration `009_student_removal_and_messaging_inbox.sql` introducing `'removed'` status, `enrollment_audit_logs` table, and `remove_student_from_class` PostgreSQL RPC function with mentor authorization verification.
+  - Implemented `RemoveStudentModal.tsx` displaying student details, consequences checklist (confirming that global account, historical posts, and weekly reports are preserved), and audit reasons.
+  - Added "Remove from Class" actions to both `StudentDirectory.tsx` (button + 3-dot menu) and `StudentProfileView.tsx`.
+  - Added support for student re-application and mentor re-admission.
 
-### BUG 2: Instant Class Joining and Approval Updates Required Page Refresh
+### ISSUE 2: Portal Flickering and Reloading During Data Updates
 - **Root Causes:**
-  1. **Component State Isolation:** State was managed locally within components without event dispatching or Realtime channels.
-  2. **Zero Realtime Subscription on Enrollments:** When a student joined or faculty approved, the database write succeeded, but online faculty and students had no channel listening to `class_enrollments`.
-  3. **No Cross-Component Sync:** The student's view remained on "Pending" until manual browser F5 reload, and faculty's pending badge count did not update dynamically.
+  1. **Aggressive Polling Loops:** Multiple components (`MentorDashboard`, `DailyProgressFeed`, `StudentDirectory`, `MentoringChatModal`) ran `setInterval` polling timers (every 2.5s–4s) that called data fetching functions that unconditionally set `isLoading(true)`, unmounting data tables/feeds and mounting full-page spinner components.
+  2. **Frame-0 Session & Class Hydration Gap:** In `AppContext.tsx`, `activeClass` and `classes` were initialized to `null` and `[]`. On every page visit or refresh, components rendered "No Class Created Yet" or "Please select a class" for 200–500ms until asynchronous fetch completed, causing visual layout shifting.
+  3. **Demo Mode Loader Stalling:** In `AppContext.tsx`, `isAuthLoading` was initialized to `true` and never set to `false` in Demo Mode, hanging the portal on "Restoring MentorPulse session...".
+  4. **Weekly Reports Page Spinners:** `WeeklyReportsPage.tsx` unconditionally called `setIsLoading(true)` on every load and feedback submission.
 - **Resolution:**
-  - Added global `enrollmentVersion` and `triggerEnrollmentUpdate()` to `AppContext`.
-  - Added Supabase Realtime subscription on `class_enrollments` (INSERT, UPDATE, DELETE) in `AppContext`.
-  - Added `mentorpulse:enrollment_update` event bus for instant sub-millisecond tab and demo mode updates.
-  - Bound `StudentDirectory`, `MentorDashboard`, and `StudentClassesPage` to `enrollmentVersion`, triggering automatic data refresh the moment an enrollment is submitted or reviewed without requiring a page refresh.
+  - Removed all `setInterval` polling loops across the entire codebase.
+  - Implemented synchronous Frame-0 local storage caching for authenticated profile (`mentorpulse_auth_profile`), classes (`mentorpulse_cached_classes`), and active class (`mentorpulse_cached_active_class`).
+  - Converted data fetching across all pages to background revalidation (`loadData(isInitial = false)`), setting `isLoading(true)` only when initial data is completely empty.
+  - Fixed `isAuthLoading` lifecycle so demo mode and cached sessions render immediately without full-screen loading spinners.
+
+### ISSUE 3: Messages Must Be Visible to Students Without Opening a Hidden Chat
+- **Root Causes:**
+  1. Supabase Realtime listeners for direct messages were previously only instantiated when `MentoringChatModal` was actively open (`isOpen === true`). When students were elsewhere on the portal, no listeners were active.
+  2. The portal lacked a dedicated Inbox route, persistent unread message badges, or notification alerts for incoming messages.
+- **Resolution:**
+  - Authored dedicated real-time `/messages` page (`src/pages/MessagesPage.tsx`) featuring a split-view conversation drawer and chat thread, optimistic UI, auto-scrolling with bottom-lock detection, and read receipt tracking.
+  - Added persistent message icon button in `Navbar.tsx` with real-time numeric unread badge.
+  - Added "Student Messages" (mentors) / "Mentor Messages" (students) navigation link with real-time badge in `Sidebar.tsx`.
+  - Added floating non-intrusive `IncomingMessageToast.tsx` previewing sender avatar, name, and message snippet with a 1-click "View Message" shortcut.
 
 ---
 
-## 2. Updated Architecture & Data Flow
+## 2. Verification & Automated Test Results
 
-```mermaid
-sequenceDiagram
-    autonumber
-    actor S as Student
-    participant UI as MentorPulse React UI
-    participant Ctx as AppContext & EventBus
-    participant DB as Supabase PostgreSQL
-    participant RT as Supabase Realtime
-    actor F as Faculty Mentor
-
-    %% Messaging Flow
-    Note over S,F: Direct Mentoring Messaging Flow
-    S->>UI: Sends direct message in MentoringChatModal
-    UI->>DB: INSERT into public.messages (conversation_id = conv_class_student)
-    DB-->>RT: Broadcast INSERT event to messages channel
-    RT-->>UI: Realtime event delivered to Faculty window
-    UI-->>F: Message renders immediately with delivery status badge
-    F->>UI: Replies in MentoringChatModal
-    UI->>DB: INSERT reply
-    DB-->>RT: Broadcast INSERT event
-    RT-->>UI: Realtime event delivered to Student window
-    UI-->>S: Reply renders immediately with read receipt
-
-    %% Enrollment Flow
-    Note over S,F: Instant Class Joining & Approval Flow
-    S->>UI: Joins class via invite token
-    UI->>DB: INSERT into class_enrollments (status: pending)
-    DB-->>RT: Broadcast INSERT on class_enrollments
-    RT-->>Ctx: Realtime event triggers triggerEnrollmentUpdate()
-    Ctx-->>F: MentorDashboard & StudentDirectory pending badges update instantly
-    F->>UI: Clicks "Approve" student
-    UI->>DB: UPDATE class_enrollments (status: approved)
-    DB-->>RT: Broadcast UPDATE event
-    RT-->>Ctx: Realtime event triggers triggerEnrollmentUpdate()
-    Ctx-->>S: StudentClassesPage updates status to Approved immediately
-```
-
----
-
-## 3. Database Migration & RLS Security
-
-### Migration Created: `supabase/migrations/007_messaging_and_realtime.sql`
-1. **`public.post_comments` Table:**
-   - Ensures `post_id` foreign key references `daily_posts(id)` with `ON DELETE CASCADE`.
-   - B-tree indexes on `post_id`, `user_id`, and `created_at`.
-2. **`public.messages` Table:**
-   - Columns: `id (UUID)`, `conversation_id (TEXT)`, `class_id (UUID)`, `sender_id (UUID)`, `recipient_id (UUID)`, `content (TEXT)`, `status (TEXT)`, `created_at (TIMESTAMPTZ)`, `read_at (TIMESTAMPTZ)`.
-   - Composite index on `(conversation_id, created_at ASC)`.
-   - Foreign key indexes on `class_id`, `sender_id`, `recipient_id`.
-3. **Strict Row-Level Security (RLS):**
-   - **SELECT:** `auth.uid() = sender_id OR auth.uid() = recipient_id OR (mentor of class)`.
-   - **INSERT:** Senders can only send as `auth.uid()`.
-   - **UPDATE:** Recipients can mark messages as read (`status = 'read'`).
-   - **DELETE:** Senders or class mentors only.
-4. **Realtime Replication Publication:**
-   ```sql
-   ALTER PUBLICATION supabase_realtime ADD TABLE public.messages, public.post_comments, public.class_enrollments, public.notifications;
-   ```
-
----
-
-## 4. Verification Evidence & Test Summary
-
-### Automated Test Suite: 81 of 81 Tests Passing (100%)
-- **`src/test/auth.test.ts` (11 tests):** Passwordless roll-number auth, institutional email validation, rate-limiting cooldown, and SMTP diagnostics.
-- **`src/test/mentorpulse.test.ts` (29 tests):** Class isolation, post creation, reactions, feedback, CSV export, profile completion, and 11-metric analytics reconciliation.
-- **`src/test/messaging_and_enrollment.test.ts` (15 tests):** Multi-persona messaging, thread isolation, idempotency, and real-time class approval flows.
-- **`src/test/practical_e2e.test.ts` (26 tests):** 20 practical authentication scenarios, XSS/boundary testing, multi-session switching, academic workflows, and 1,500 virtual student scale benchmarks.
-
-### Build, Typecheck & Scale Verification:
-- **`npx tsc -b`:** Exit code 0 (Zero type errors).
-- **`npm run build`:** Exit code 0 (`dist/` built cleanly in 3.72s).
-- **1,500 Virtual User Scale Benchmark:** 1,500 queries executed in 2.1ms (>700,000 ops/sec) with zero state corruption.
-- **Comprehensive Audit Report:** Available at [`docs/MENTORPULSE_PRACTICAL_TEST_REPORT.md`](file:///c:/Users/Keerthana%20N/OneDrive%20-%20Kumaraguru%20College%20of%20Technology/research/NEW/docs/MENTORPULSE_PRACTICAL_TEST_REPORT.md).
-
----
-
-## 5. Outstanding Manual Action Required
-1. Open your Supabase Dashboard: [https://supabase.com/dashboard/project/myuljbnmmcpyhbhjxffo/sql](https://supabase.com/dashboard/project/myuljbnmmcpyhbhjxffo/sql).
-2. Copy and execute the contents of [`supabase/migrations/007_messaging_and_realtime.sql`](file:///c:/Users/Keerthana%20N/OneDrive%20-%20Kumaraguru%20College%20of%20Technology/research/NEW/supabase/migrations/007_messaging_and_realtime.sql).
-3. Confirm that Realtime is enabled under **Database $\rightarrow$ Publications $\rightarrow$ supabase_realtime** for `messages`, `class_enrollments`, `post_comments`, and `notifications`.
+- **Test Suite**: Vitest v5.0.5 (`npm test`)
+- **Total Tests**: **91 passed (100% pass rate across 5 test suites)**
+  - `src/test/ux_realtime_fixes.test.ts` (10 tests)
+  - `src/test/messaging_and_enrollment.test.ts` (15 tests)
+  - `src/test/auth.test.ts` (11 tests)
+  - `src/test/practical_e2e.test.ts` (26 tests)
+  - `src/test/mentorpulse.test.ts` (29 tests)
+- **Production Build**: `tsc -b && vite build` completed cleanly in 6.43s with zero errors (`dist/`).

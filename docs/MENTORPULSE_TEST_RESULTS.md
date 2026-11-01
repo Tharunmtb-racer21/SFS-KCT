@@ -2,8 +2,8 @@
 
 **Project:** MentorPulse by THARUN N E (SFS @ Kumaraguru College of Technology)  
 **Test Suite:** Vitest v5.0.5 + TypeScript compiler (`tsc -b`) + Production Build (`vite build`)  
-**Timestamp:** 2026-10-28  
-**Result:** 55 of 55 Automated Tests Passed (100% Pass Rate across 3 test suites)
+**Timestamp:** 2026-10-29  
+**Result:** 91 of 91 Automated Tests Passed (100% Pass Rate across 5 test suites)
 
 ---
 
@@ -11,6 +11,16 @@
 
 | Test ID | Test Scenario | Fixture / Account Role | Expected Result | Actual Result | Status |
 | :--- | :--- | :--- | :--- | :--- | :---: |
+| **MP-UX-01** | Student Removal from Class | `mentor-1` removing `student-ece-1` | Status changed to `'removed'`, audit logged | Student removed from roster with audit log | **PASS** |
+| **MP-UX-02** | Unauthorized Removal Prevention | Non-mentor attempting student removal | Throws authorization error, preserves enrollment | Unauthorized removal blocked | **PASS** |
+| **MP-UX-03** | Preserving Student Account & Posts | Student account upon class removal | Global account, profile, posts, reports intact | All historical records preserved | **PASS** |
+| **MP-UX-04** | Student Re-Enrollment / Re-admission | Removed student re-applying | Status transitions from `'removed'` back to active | Re-admission successful | **PASS** |
+| **MP-UX-05** | Multi-Class Removal Scope Isolation | Student in multiple class cohorts | Removal from Class A does not affect Class B | Independent class enrollments preserved | **PASS** |
+| **MP-UX-06** | Instant Session & Class Cache Hydration | App mount with cached profile/class | Synchronous hydration, no unmount/remount | Frame-0 render without white flash | **PASS** |
+| **MP-UX-07** | Message & Event Deduplication | Duplicate Realtime events | Handled idempotently without duplicate UI rows | Zero duplicate rows or count inflation | **PASS** |
+| **MP-UX-08** | Unread Counter Recipient Isolation | Sender sending message | Unread count increments for recipient only | Sender count unaffected, recipient +1 | **PASS** |
+| **MP-UX-09** | Conversation Summaries & Latest Message | User messages list | Sorted by latest message, unread count badge | Summaries formatted correctly | **PASS** |
+| **MP-UX-10** | Persistent Message Read Receipts | Opening conversation | Status updated to `read` with timestamp | Read receipts persisted | **PASS** |
 | **MP-AUTH-01 to 11** | Authentication & Rate Limit Cooldown Suite | Student / Mentor registration | Institutional validation, rate limit cooldown, SMTP | 11/11 tests passing | **PASS** |
 | **MP-SEC-01** | Class Isolation: ECE vs Mech Students | `class-ece-2024`, `class-mech-2024` | ECE students never appear in Mech class roster | ECE students isolated | **PASS** |
 | **MP-SEC-02** | Feed Isolation: Class-scoped daily posts | ECE and Mech daily posts | Post query filters strictly by `class_id` | Zero cross-class leakage | **PASS** |
@@ -41,38 +51,20 @@
 | **MP-WORK-06**| Weekly report isolation between peers | Student A vs Student B | Student A cannot view Student B's draft/report| Query filters to student ID | **PASS** |
 | **MP-ANL-01** | Profile completion evaluation formula | `evaluateStudentProfile` | 5 criteria checked: Name, Reg No, Dept, Skills, Bio | Complete = 100%, incomplete < 100% | **PASS** |
 | **MP-ANL-02** | Faculty visual analytics & attention queue | `computeClassAnalytics` | 11 metric reconciliation, unique poster deduplication | Math reconciles, zero fakes | **PASS** |
-| **MP-MSG-01** | Student A sends direct message to faculty mentor | `student-ece-1` $\rightarrow$ `mentor-1` | Message persisted with ID, delivered status | Persisted with stable thread | **PASS** |
-| **MP-MSG-02** | Message appears in faculty conversation without reload | Mentoring thread | Message query reflects new item | Instantly retrievable | **PASS** |
-| **MP-MSG-03** | Faculty replies and student sees reply | `mentor-1` $\rightarrow$ `student-ece-1` | Student view contains faculty reply | Reply matches and displays | **PASS** |
-| **MP-MSG-04** | Messages persist across reloads and new store instances | Store reinitialization | Messages persist across sessions | Multi-device sync verified | **PASS** |
-| **MP-MSG-05** | Unauthorized student cannot read another conversation | `student-ece-2` inspecting `student-ece-1` | Zero leakage between conversations | Thread completely isolated | **PASS** |
-| **MP-MSG-06** | Empty content cannot be sent | Input validation | Rejects empty strings with error | Validation enforced | **PASS** |
-| **MP-ENR-01** | Student submits join request and sees status | Join via token | Enrollment record created with pending status | Confirmed status returned | **PASS** |
-| **MP-ENR-02** | Faculty sees pending request in class roster | Roster view | Pending student listed in review tab | Student present in roster | **PASS** |
-| **MP-ENR-03** | Faculty approves request and status updates immediately | Review action | Status changes to approved, reviewer recorded | Roster immediately approved | **PASS** |
-| **MP-ENR-04** | Student sees approved status when checking enrollments | Student classes | Membership reflects approved status | Confirmed approved | **PASS** |
-| **MP-ENR-05** | Declining an enrollment updates status to rejected | Review action | Status changes to rejected | Roster reflects rejected | **PASS** |
-| **MP-ENR-06** | Invalid class ID throws explicit error | Enrollment request | Error thrown; no false positive | Explicit error thrown | **PASS** |
-| **MP-ENR-07** | Repeated join requests are idempotent | Duplicate join clicks | Returns existing enrollment without duplicate rows | Deduplicated (length = 1) | **PASS** |
-| **MP-MSG-07** | Marking messages as read updates status and timestamp | Read receipt handler | Status changes to read, `read_at` recorded | Status = read | **PASS** |
-| **MP-MSG-08** | Multi-class conversations do not leak across classes | Class A vs Class B | Messages in Class A never appear in Class B | Completely isolated | **PASS** |
+| **MP-MSG-01 to 08** | Realtime Messaging & Thread Isolation | Direct messaging service | End-to-end multi-party messaging | 8/8 tests passing | **PASS** |
+| **MP-ENR-01 to 07** | Class Enrollment Lifecycle | Class enrollment service | Request, review, approve, decline, idempotence | 7/7 tests passing | **PASS** |
 
 ---
 
-## 2. Build and Typecheck Verification
+## 2. Test Suite Breakdown
 
-```bash
-npx tsc -b
-# Exit Code: 0 (Zero type errors)
-
-npm run build
-# Exit Code: 0 (dist/ generated cleanly in 2.31s)
-# Assets: dist/assets/index-DVp58SUa.js (807 kB), dist/assets/index-6VfJNaT4.css (41 kB)
 ```
-
----
-
-## 3. Realtime & Live Database Verification Status
-- **Supabase Realtime Subscriptions:** Added for `messages`, `class_enrollments`, `post_comments`, and `notifications`.
-- **Migration Required in Dashboard:** Execute `supabase/migrations/007_messaging_and_realtime.sql` in Supabase SQL editor to create the `public.messages` table, add the foreign key on `public.post_comments`, and attach tables to `supabase_realtime` publication.
-- **Graceful Fallback Verified:** Both Production Mode and Demo Mode handle schema transitions resiliently without application crashes.
+Test Files: 5 passed (5)
+Tests:      91 passed (91)
+Suites:
+  ✓ src/test/auth.test.ts (11 tests)
+  ✓ src/test/ux_realtime_fixes.test.ts (10 tests)
+  ✓ src/test/messaging_and_enrollment.test.ts (15 tests)
+  ✓ src/test/practical_e2e.test.ts (26 tests)
+  ✓ src/test/mentorpulse.test.ts (29 tests)
+```

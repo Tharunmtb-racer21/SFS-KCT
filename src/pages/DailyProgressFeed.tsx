@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
@@ -132,16 +132,28 @@ export const DailyProgressFeed: React.FC = () => {
     }
   }, [activeClass?.id, currentUser?.id]);
 
-  const loadPosts = async () => {
+  const loadPosts = async (isInitial = false) => {
     if (!activeClass || !currentUser) {
       setPosts([]);
       return;
     }
-    setIsLoading(true);
+
+    if (isInitial && posts.length === 0) {
+      setIsLoading(true);
+    }
     setFeedError(null);
     try {
       if (activeMode === 'production') {
         if (currentUser.role === 'student') {
+          // Check if student is active approved member
+          const enrollments = await supabaseService.getEnrollmentsForStudent(currentUser.id);
+          const enrollment = enrollments.find((e) => e.class_id === activeClass.id);
+          if (enrollment && enrollment.status === 'removed') {
+            setPosts([]);
+            setFeedError('You have been removed from this class by the faculty mentor.');
+            return;
+          }
+
           // 1-on-1 Mentoring: Student loads exclusively their own progress channel with faculty
           const myPosts = await supabaseService.getDailyPostsForStudent(currentUser.id, activeClass.id);
           setPosts(myPosts);
@@ -152,6 +164,14 @@ export const DailyProgressFeed: React.FC = () => {
         }
       } else {
         if (currentUser.role === 'student') {
+          const enrollments = appStore.getEnrollmentsForStudent(currentUser.id);
+          const enrollment = enrollments.find((e) => e.class_id === activeClass.id);
+          if (enrollment && enrollment.status === 'removed') {
+            setPosts([]);
+            setFeedError('You have been removed from this class by the faculty mentor.');
+            return;
+          }
+
           const myPosts = appStore.getDailyPostsForStudent(currentUser.id, activeClass.id);
           setPosts(myPosts);
         } else {
@@ -163,17 +183,18 @@ export const DailyProgressFeed: React.FC = () => {
       console.error('Failed to load feed:', err);
       setFeedError(err.message || 'Failed to load progress posts.');
     } finally {
-      setIsLoading(false);
+      if (isInitial) {
+        setIsLoading(false);
+      }
     }
   };
 
-  useEffect(() => {
-    loadPosts();
+  const isFirstMountRef = useRef(true);
 
-    // Active live-sync interval for mobile and background synchronization
-    const pollInterval = setInterval(() => {
-      loadPosts();
-    }, 3500);
+  useEffect(() => {
+    const isFirst = isFirstMountRef.current;
+    isFirstMountRef.current = false;
+    loadPosts(isFirst);
 
     let channel: any = null;
     if (activeMode === 'production' && supabase && isSupabaseConfigured && activeClass?.id) {
@@ -184,35 +205,34 @@ export const DailyProgressFeed: React.FC = () => {
           'postgres_changes',
           { event: '*', schema: 'public', table: 'post_comments' },
           () => {
-            loadPosts();
+            loadPosts(false);
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'post_reactions' },
           () => {
-            loadPosts();
+            loadPosts(false);
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'post_feedback' },
           () => {
-            loadPosts();
+            loadPosts(false);
           }
         )
         .on(
           'postgres_changes',
           { event: '*', schema: 'public', table: 'daily_posts', filter: `class_id=eq.${activeClass.id}` },
           () => {
-            loadPosts();
+            loadPosts(false);
           }
         )
         .subscribe();
     }
 
     return () => {
-      clearInterval(pollInterval);
       if (channel && supabase) {
         supabase.removeChannel(channel);
       }
@@ -304,14 +324,23 @@ export const DailyProgressFeed: React.FC = () => {
         try {
           const enrollments = await supabaseService.getEnrollmentsForStudent(currentUser.id);
           const isEnrolled = enrollments.some(
-            (e) => e.class_id === activeClass.id
+            (e) => e.class_id === activeClass.id && e.status === 'approved'
           );
           if (!isEnrolled) {
-            setFormError('Authorization required: You must join this class first to publish updates.');
+            setFormError('Access restricted: You must have an approved enrollment in this class to publish updates.');
             return;
           }
         } catch (err: any) {
           console.warn('Membership check warning:', err);
+        }
+      } else {
+        const enrollments = appStore.getEnrollmentsForStudent(currentUser.id);
+        const isEnrolled = enrollments.some(
+          (e) => e.class_id === activeClass.id && e.status === 'approved'
+        );
+        if (!isEnrolled) {
+          setFormError('Access restricted: You must have an approved enrollment in this class to publish updates.');
+          return;
         }
       }
     }
@@ -648,7 +677,7 @@ export const DailyProgressFeed: React.FC = () => {
             <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{feedError}</span>
           </div>
-          <button onClick={loadPosts} className="text-xs font-bold underline hover:text-rose-950">
+          <button onClick={() => loadPosts()} className="text-xs font-bold underline hover:text-rose-950">
             Retry
           </button>
         </div>

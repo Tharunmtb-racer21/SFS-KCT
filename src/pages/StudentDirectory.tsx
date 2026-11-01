@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
@@ -16,10 +16,12 @@ import {
   UserX,
   Loader2,
   AlertCircle,
-  MessageSquare
+  MessageSquare,
+  MoreVertical
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { MentoringChatModal } from '../components/MentoringChatModal';
+import { RemoveStudentModal } from '../components/RemoveStudentModal';
 
 export const StudentDirectory: React.FC = () => {
   const { currentUser, activeClass, refreshData, activeMode, enrollmentVersion, triggerEnrollmentUpdate } = useApp();
@@ -30,27 +32,37 @@ export const StudentDirectory: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [activeChatStudent, setActiveChatStudent] = useState<Profile | null>(null);
+  const [studentToRemove, setStudentToRemove] = useState<Profile | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeTab, setActiveTab] = useState<'approved' | 'pending'>(
-    searchParams.get('tab') === 'pending' ? 'pending' : 'approved'
+  const [activeTab, setActiveTab] = useState<'approved' | 'pending' | 'removed'>(
+    searchParams.get('tab') === 'pending' 
+      ? 'pending' 
+      : searchParams.get('tab') === 'removed' 
+      ? 'removed' 
+      : 'approved'
   );
 
-  const handleTabChange = (newTab: 'approved' | 'pending') => {
+  const handleTabChange = (newTab: 'approved' | 'pending' | 'removed') => {
     setActiveTab(newTab);
     if (newTab === 'pending') {
       setSearchParams({ tab: 'pending' });
+    } else if (newTab === 'removed') {
+      setSearchParams({ tab: 'removed' });
     } else {
       setSearchParams({});
     }
   };
 
-  const loadEnrollments = async () => {
+  const loadEnrollments = async (isInitial = false) => {
     if (!activeClass) {
       setEnrollments([]);
       return;
     }
-    setIsLoading(true);
+    if (isInitial && enrollments.length === 0) {
+      setIsLoading(true);
+    }
     setErrorMsg(null);
     try {
       if (activeMode === 'production') {
@@ -64,16 +76,16 @@ export const StudentDirectory: React.FC = () => {
       console.error('Failed to load roster:', err);
       setErrorMsg(err.message || 'Failed to load class roster from backend.');
     } finally {
-      setIsLoading(false);
+      if (isInitial) setIsLoading(false);
     }
   };
 
+  const isFirstMountRef = useRef(true);
+
   useEffect(() => {
-    loadEnrollments();
-    const interval = setInterval(() => {
-      loadEnrollments();
-    }, 3000);
-    return () => clearInterval(interval);
+    const isFirst = isFirstMountRef.current;
+    isFirstMountRef.current = false;
+    loadEnrollments(isFirst);
   }, [activeClass?.id, activeMode, enrollmentVersion]);
 
   if (!currentUser || currentUser.role !== 'mentor') {
@@ -90,6 +102,7 @@ export const StudentDirectory: React.FC = () => {
 
   const approvedList = enrollments.filter(e => e.status === 'approved');
   const pendingList = enrollments.filter(e => e.status === 'pending');
+  const removedList = enrollments.filter(e => e.status === 'removed');
 
   const handleApprove = async (enrollmentId: string) => {
     try {
@@ -145,7 +158,28 @@ export const StudentDirectory: React.FC = () => {
     }
   };
 
-  const currentList = activeTab === 'approved' ? approvedList : pendingList;
+  const handleRemoveConfirm = async (reason: string) => {
+    if (!studentToRemove || !activeClass || !currentUser) return;
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.removeStudentFromClass(activeClass.id, studentToRemove.id, currentUser.id, reason);
+      } else {
+        appStore.removeStudentFromClass(activeClass.id, studentToRemove.id, currentUser.id, reason);
+      }
+      setStudentToRemove(null);
+      await loadEnrollments(false);
+      triggerEnrollmentUpdate();
+    } catch (err: any) {
+      console.error('Failed removing student:', err);
+      throw err;
+    }
+  };
+
+  const currentList = activeTab === 'approved' 
+    ? approvedList 
+    : activeTab === 'pending' 
+    ? pendingList 
+    : removedList;
 
   const filteredList = currentList.filter(e => {
     const s = e.student;
@@ -217,6 +251,18 @@ export const StudentDirectory: React.FC = () => {
               <Clock className="w-3.5 h-3.5 text-amber-500" />
               Pending Approvals ({pendingList.length})
             </button>
+
+            <button
+              onClick={() => handleTabChange('removed')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                activeTab === 'removed'
+                  ? 'bg-white text-rose-900 shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <UserX className="w-3.5 h-3.5 text-rose-500" />
+              Removed ({removedList.length})
+            </button>
           </div>
         </div>
       </div>
@@ -227,7 +273,7 @@ export const StudentDirectory: React.FC = () => {
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{errorMsg}</span>
           </div>
-          <button onClick={loadEnrollments} className="text-xs font-bold underline hover:text-rose-950">
+          <button onClick={() => loadEnrollments()} className="text-xs font-bold underline hover:text-rose-950">
             Retry
           </button>
         </div>
@@ -332,12 +378,17 @@ export const StudentDirectory: React.FC = () => {
           {filteredList.map((enrollment) => {
             const student = enrollment.student;
             const isPending = enrollment.status === 'pending';
+            const isRemoved = enrollment.status === 'removed';
 
             return (
               <div
                 key={enrollment.id}
                 className={`bg-white rounded-2xl border p-5 flex flex-col justify-between shadow-xs transition-all ${
-                  isPending ? 'border-amber-200 bg-amber-50/20' : 'border-slate-200 hover:shadow-md'
+                  isPending 
+                    ? 'border-amber-200 bg-amber-50/20' 
+                    : isRemoved 
+                    ? 'border-rose-200 bg-rose-50/15 opacity-90' 
+                    : 'border-slate-200 hover:shadow-md'
                 }`}
               >
                 <div>
@@ -362,11 +413,70 @@ export const StudentDirectory: React.FC = () => {
                         </div>
                       </div>
                     </div>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
-                      isPending ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
-                    }`}>
-                      {isPending ? 'Pending' : 'Enrolled'}
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                        isPending 
+                          ? 'bg-amber-100 text-amber-800' 
+                          : isRemoved 
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200' 
+                          : 'bg-emerald-100 text-emerald-800'
+                      }`}>
+                        {isPending ? 'Pending Review' : isRemoved ? 'Removed from Class' : 'Enrolled'}
+                      </span>
+                      {!isPending && !isRemoved && (
+                        <div className="relative">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(openMenuId === enrollment.id ? null : enrollment.id);
+                            }}
+                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            title="Actions menu"
+                            aria-label="Student actions"
+                          >
+                            <MoreVertical className="w-4 h-4" />
+                          </button>
+                          {openMenuId === enrollment.id && (
+                            <div 
+                              className="absolute right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30 animate-in fade-in zoom-in-95"
+                              onMouseLeave={() => setOpenMenuId(null)}
+                            >
+                              <button
+                                onClick={() => {
+                                  setOpenMenuId(null);
+                                  navigate(`/mentor/students/${student.id}`);
+                                }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                                View Full Journey
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setOpenMenuId(null);
+                                  setActiveChatStudent(student);
+                                }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              >
+                                <MessageSquare className="w-3.5 h-3.5 text-teal-600" />
+                                Direct Message
+                              </button>
+                              <div className="my-1 border-t border-slate-100" />
+                              <button
+                                onClick={() => {
+                                  setOpenMenuId(null);
+                                  setStudentToRemove(student);
+                                }}
+                                className="w-full text-left px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50 font-medium flex items-center gap-2"
+                              >
+                                <UserX className="w-3.5 h-3.5 text-rose-600" />
+                                Remove from Class
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Bio / Dept */}
@@ -424,6 +534,23 @@ export const StudentDirectory: React.FC = () => {
                         Decline
                       </button>
                     </div>
+                  ) : isRemoved ? (
+                    <div className="flex items-center gap-2 w-full">
+                      <button
+                        onClick={() => handleApprove(enrollment.id)}
+                        className="flex-1 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1 transition-colors"
+                        title="Re-enroll this student back into class"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Re-admit Student
+                      </button>
+                      <button
+                        onClick={() => navigate(`/mentor/students/${student.id}`)}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition-colors"
+                      >
+                        History
+                      </button>
+                    </div>
                   ) : (
                     <div className="flex items-center gap-2 w-full">
                       <button
@@ -440,6 +567,15 @@ export const StudentDirectory: React.FC = () => {
                       >
                         <MessageSquare className="w-3.5 h-3.5 text-teal-700" />
                         Message
+                      </button>
+                      <button
+                        onClick={() => setStudentToRemove(student)}
+                        className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-xl text-xs font-semibold flex items-center gap-1 transition-colors border border-rose-200"
+                        title={`Remove ${student.full_name} from ${activeClass.name}`}
+                        aria-label={`Remove ${student.full_name} from class`}
+                      >
+                        <UserX className="w-3.5 h-3.5" />
+                        <span>Remove</span>
                       </button>
                     </div>
                   )}
@@ -458,6 +594,17 @@ export const StudentDirectory: React.FC = () => {
           targetStudentId={activeChatStudent.id}
           classId={activeClass.id}
           studentName={activeChatStudent.full_name}
+        />
+      )}
+
+      {/* Remove Student Confirmation Modal */}
+      {studentToRemove && activeClass && (
+        <RemoveStudentModal
+          isOpen={Boolean(studentToRemove)}
+          student={studentToRemove}
+          classGroup={activeClass}
+          onClose={() => setStudentToRemove(null)}
+          onConfirm={handleRemoveConfirm}
         />
       )}
     </div>

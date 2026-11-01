@@ -11,11 +11,12 @@ import {
   CalendarCheck,
   FolderOpen,
   Award,
-  Link as LinkIcon
+  Link as LinkIcon,
+  MessageSquare
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
-  const { currentUser, activeClass } = useApp();
+  const { currentUser, activeClass, unreadMessageCount } = useApp();
   const isMentor = currentUser?.role === 'mentor';
 
   return (
@@ -129,12 +130,54 @@ export const Sidebar: React.FC = () => {
               <CalendarCheck className="w-4 h-4" />
               Weekly Reports Review
             </NavLink>
+
+            <NavLink
+              to="/messages"
+              className={({ isActive }) =>
+                `flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  isActive
+                    ? 'bg-navy-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`
+              }
+            >
+              <div className="flex items-center gap-3">
+                <MessageSquare className="w-4 h-4" />
+                Student Messages
+              </div>
+              {unreadMessageCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-500 text-slate-950 animate-pulse">
+                  {unreadMessageCount}
+                </span>
+              )}
+            </NavLink>
           </>
         ) : (
           <>
             <div className="px-3 pt-2 pb-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider">
               Student Workspace
             </div>
+
+            <NavLink
+              to="/messages"
+              className={({ isActive }) =>
+                `flex items-center justify-between px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  isActive
+                    ? 'bg-navy-900 text-white shadow-xs'
+                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                }`
+              }
+            >
+              <div className="flex items-center gap-3">
+                <MessageSquare className="w-4 h-4" />
+                Mentor Messages
+              </div>
+              {unreadMessageCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-500 text-slate-950 animate-pulse">
+                  {unreadMessageCount}
+                </span>
+              )}
+            </NavLink>
 
             <NavLink
               to="/student/feed"

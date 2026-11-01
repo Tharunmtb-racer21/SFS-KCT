@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
@@ -19,9 +19,12 @@ import {
   Send,
   Loader2,
   AlertCircle,
-  MessageSquare
+  MessageSquare,
+  UserX,
+  Check
 } from 'lucide-react';
 import { MentoringChatModal } from '../components/MentoringChatModal';
+import { RemoveStudentModal } from '../components/RemoveStudentModal';
 
 const REACTION_CONFIG: { type: ReactionType; emoji: string; label: string; aliases: string[] }[] = [
   { type: '🔥', emoji: '🔥', label: 'Inspiring', aliases: ['🔥', 'WOW'] },
@@ -31,15 +34,18 @@ const REACTION_CONFIG: { type: ReactionType; emoji: string; label: string; alias
 
 export const StudentProfileView: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>();
-  const { currentUser, activeClass, refreshData, activeMode } = useApp();
+  const { currentUser, activeClass, refreshData, activeMode, triggerEnrollmentUpdate } = useApp();
   const navigate = useNavigate();
 
   const [student, setStudent] = useState<Profile | null>(null);
+  const [enrollmentStatus, setEnrollmentStatus] = useState<string | null>(null);
+  const [enrollmentId, setEnrollmentId] = useState<string | null>(null);
   const [dailyPosts, setDailyPosts] = useState<DailyPost[]>([]);
   const [weeklyReports, setWeeklyReports] = useState<WeeklyReport[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isRemoveModalOpen, setIsRemoveModalOpen] = useState(false);
 
   const [feedbackText, setFeedbackText] = useState<{ [postId: string]: string }>({});
   const [submittingPostId, setSubmittingPostId] = useState<string | null>(null);
@@ -104,14 +110,22 @@ export const StudentProfileView: React.FC = () => {
     }
   };
 
-  const loadStudentData = async () => {
+  const loadStudentData = async (isInitial = false) => {
     if (!studentId) return;
-    setIsLoading(true);
+    if (isInitial && !student) {
+      setIsLoading(true);
+    }
     setErrorMsg(null);
     try {
       if (activeMode === 'production') {
         const profile = await supabaseService.getProfile(studentId);
         setStudent(profile);
+        if (activeClass?.id) {
+          const enrollments = await supabaseService.getEnrollmentsForClass(activeClass.id);
+          const currentEnr = enrollments.find(e => e.student_id === studentId);
+          setEnrollmentStatus(currentEnr?.status || null);
+          setEnrollmentId(currentEnr?.id || null);
+        }
         const posts = await supabaseService.getDailyPostsForStudent(studentId, activeClass?.id);
         setDailyPosts(posts);
         const reports = await supabaseService.getWeeklyReportsForStudent(studentId, activeClass?.id);
@@ -119,6 +133,12 @@ export const StudentProfileView: React.FC = () => {
       } else {
         const profile = appStore.getProfile(studentId);
         setStudent(profile);
+        if (activeClass?.id) {
+          const enrollments = appStore.getEnrollmentsForClass(activeClass.id);
+          const currentEnr = enrollments.find(e => e.student_id === studentId);
+          setEnrollmentStatus(currentEnr?.status || null);
+          setEnrollmentId(currentEnr?.id || null);
+        }
         const posts = appStore.getDailyPostsForStudent(studentId, activeClass?.id);
         setDailyPosts(posts);
         const reports = appStore.getWeeklyReportsForStudent(studentId, activeClass?.id);
@@ -128,13 +148,36 @@ export const StudentProfileView: React.FC = () => {
       console.error('Failed to load student journey:', err);
       setErrorMsg(err.message || 'Failed to load student data.');
     } finally {
-      setIsLoading(false);
+      if (isInitial) {
+        setIsLoading(false);
+      }
     }
   };
 
+  const isFirstMountRef = useRef(true);
+
   useEffect(() => {
-    loadStudentData();
+    const isFirst = isFirstMountRef.current;
+    isFirstMountRef.current = false;
+    loadStudentData(isFirst);
   }, [studentId, activeClass?.id, activeMode]);
+
+  const handleRemoveStudent = async (reason: string) => {
+    if (!student || !activeClass || !currentUser) return;
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.removeStudentFromClass(activeClass.id, student.id, currentUser.id, reason);
+      } else {
+        appStore.removeStudentFromClass(activeClass.id, student.id, currentUser.id, reason);
+      }
+      triggerEnrollmentUpdate();
+      setIsRemoveModalOpen(false);
+      navigate('/mentor/students');
+    } catch (err: any) {
+      console.error('Failed to remove student:', err);
+      throw err;
+    }
+  };
 
   if (!studentId) {
     return <div className="p-8 text-center text-slate-500">Student ID is required.</div>;
@@ -239,9 +282,15 @@ export const StudentProfileView: React.FC = () => {
           </div>
 
           <div className="flex sm:flex-col items-center sm:items-end gap-2 text-right">
-            <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Verified Student
-            </span>
+            {enrollmentStatus === 'removed' ? (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
+                Removed from this Class
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                Verified Student
+              </span>
+            )}
             <span className="text-[11px] text-slate-400">
               {dailyPosts.length} posts &bull; {weeklyReports.length} reports
             </span>
@@ -252,6 +301,36 @@ export const StudentProfileView: React.FC = () => {
               <MessageSquare className="w-3.5 h-3.5" />
               Direct Message Student
             </button>
+            {currentUser?.role === 'mentor' && activeClass && (
+              enrollmentStatus === 'removed' ? (
+                <button
+                  onClick={async () => {
+                    if (!enrollmentId) return;
+                    if (activeMode === 'production') {
+                      await supabaseService.reviewEnrollment(enrollmentId, 'approved', currentUser.id);
+                    } else {
+                      appStore.updateEnrollmentStatus(enrollmentId, 'approved');
+                    }
+                    triggerEnrollmentUpdate();
+                    loadStudentData(false);
+                  }}
+                  className="mt-1 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  title={`Re-enroll ${student.full_name} back into ${activeClass.name}`}
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Re-admit Student
+                </button>
+              ) : (
+                <button
+                  onClick={() => setIsRemoveModalOpen(true)}
+                  className="mt-1 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+                  title={`Remove ${student.full_name} from ${activeClass.name}`}
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                  Remove from Class
+                </button>
+              )
+            )}
           </div>
         </div>
 
@@ -493,6 +572,17 @@ export const StudentProfileView: React.FC = () => {
           targetStudentId={student.id}
           classId={activeClass.id}
           studentName={student.full_name}
+        />
+      )}
+
+      {/* Remove Student Confirmation Modal */}
+      {isRemoveModalOpen && student && activeClass && (
+        <RemoveStudentModal
+          isOpen={isRemoveModalOpen}
+          student={student}
+          classGroup={activeClass}
+          onClose={() => setIsRemoveModalOpen(false)}
+          onConfirm={handleRemoveStudent}
         />
       )}
     </div>

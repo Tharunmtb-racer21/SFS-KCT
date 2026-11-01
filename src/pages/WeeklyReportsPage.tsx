@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
@@ -31,6 +31,7 @@ export const WeeklyReportsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isRemovedStudent, setIsRemovedStudent] = useState(false);
 
   const [showForm, setShowForm] = useState(false);
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
@@ -58,14 +59,30 @@ export const WeeklyReportsPage: React.FC = () => {
   const [reviewInputs, setReviewInputs] = useState<{ [reportId: string]: string }>({});
   const [reviewStatusDecisions, setReviewStatusDecisions] = useState<{ [reportId: string]: 'approved' | 'needs_revision' }>({});
 
-  const loadReports = async () => {
+  const loadReports = async (isInitial = false) => {
     if (!activeClass || !currentUser) {
       setReports([]);
       return;
     }
-    setIsLoading(true);
+    if (isInitial && reports.length === 0) {
+      setIsLoading(true);
+    }
     setReportError(null);
     try {
+      if (currentUser.role === 'student') {
+        const enrollments = activeMode === 'production'
+          ? await supabaseService.getEnrollmentsForStudent(currentUser.id)
+          : appStore.getEnrollmentsForStudent(currentUser.id);
+        const enrollment = enrollments.find(e => e.class_id === activeClass.id);
+        if (enrollment && enrollment.status === 'removed') {
+          setIsRemovedStudent(true);
+          setReports([]);
+          return;
+        } else {
+          setIsRemovedStudent(false);
+        }
+      }
+
       if (activeMode === 'production') {
         const liveReports = currentUser.role === 'mentor'
           ? await supabaseService.getWeeklyReportsForClass(activeClass.id)
@@ -81,12 +98,18 @@ export const WeeklyReportsPage: React.FC = () => {
       console.error('Failed to load weekly reports:', err);
       setReportError(err.message || 'Failed to load weekly reports from backend.');
     } finally {
-      setIsLoading(false);
+      if (isInitial) {
+        setIsLoading(false);
+      }
     }
   };
 
+  const isFirstMountRef = useRef(true);
+
   useEffect(() => {
-    loadReports();
+    const isFirst = isFirstMountRef.current;
+    isFirstMountRef.current = false;
+    loadReports(isFirst);
   }, [activeClass?.id, currentUser?.id, activeMode]);
 
   if (!currentUser) {
@@ -231,7 +254,7 @@ export const WeeklyReportsPage: React.FC = () => {
           : 'Weekly report draft saved. You can continue editing before final submission.'
       );
       setTimeout(() => setSuccessMessage(null), 4000);
-      await loadReports();
+      await loadReports(false);
     } catch (err: any) {
       if (err.message?.toLowerCase().includes('row-level security') || err.message?.toLowerCase().includes('violates')) {
         setFormError('Database Permission: Migration 006 is required in Supabase. Please execute 006_fix_all_rls_errors.sql in your Supabase SQL Editor to enable direct submissions.');
@@ -258,7 +281,7 @@ export const WeeklyReportsPage: React.FC = () => {
       setReviewInputs({ ...reviewInputs, [reportId]: '' });
       setSuccessMessage(`Assessment feedback saved as ${decision === 'approved' ? 'Approved' : 'Needs Revision'}.`);
       setTimeout(() => setSuccessMessage(null), 3000);
-      await loadReports();
+      await loadReports(false);
     } catch (err: any) {
       alert(`Feedback submission failed: ${err.message}`);
     }
@@ -302,7 +325,7 @@ export const WeeklyReportsPage: React.FC = () => {
             </div>
           )}
 
-          {isStudent && (
+          {isStudent && !isRemovedStudent && (
             <button
               onClick={() => {
                 if (showForm) {
@@ -322,6 +345,19 @@ export const WeeklyReportsPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Removed Student Notice */}
+      {isRemovedStudent && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-rose-600 shrink-0" />
+          <div>
+            <p className="font-bold">You have been removed from this class by the faculty mentor.</p>
+            <p className="text-slate-600 mt-0.5">
+              Access to this class's weekly reports and mentoring submissions is currently restricted. You can re-apply via the official class invitation link.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Success Notification Banner */}
       {successMessage && (
         <div className="p-3.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2 font-medium animate-in fade-in">
@@ -336,7 +372,7 @@ export const WeeklyReportsPage: React.FC = () => {
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{reportError}</span>
           </div>
-          <button onClick={loadReports} className="text-xs font-bold underline hover:text-rose-950">
+          <button onClick={() => loadReports(true)} className="text-xs font-bold underline hover:text-rose-950">
             Retry
           </button>
         </div>

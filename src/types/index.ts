@@ -38,7 +38,7 @@ export interface ClassGroup {
   pending_count?: number;
 }
 
-export type EnrollmentStatus = 'pending' | 'approved' | 'rejected';
+export type EnrollmentStatus = 'pending' | 'approved' | 'rejected' | 'removed';
 
 export interface ClassEnrollment {
   id: string;
@@ -50,6 +50,18 @@ export interface ClassEnrollment {
   reviewed_by?: string;
   student?: Profile;
   class?: ClassGroup;
+}
+
+export interface EnrollmentAuditLog {
+  id: string;
+  enrollment_id?: string;
+  class_id: string;
+  student_id: string;
+  action: 'requested' | 'approved' | 'rejected' | 'removed' | 're_enrolled';
+  actor_id?: string;
+  mentor_id?: string;
+  reason?: string;
+  created_at: string;
 }
 
 export type ReactionType = '🔥' | '👏' | '💡' | 'WOW' | 'Great' | 'Excellent' | 'Appreciate';
@@ -166,4 +178,13 @@ export interface DirectMessage {
   read_at?: string | null;
   sender?: Profile;
   recipient?: Profile;
+}
+
+export interface ConversationSummary {
+  conversationId: string;
+  classId: string;
+  className: string;
+  otherUser: Profile;
+  lastMessage: DirectMessage;
+  unreadCount: number;
 }

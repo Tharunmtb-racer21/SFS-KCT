@@ -14,6 +14,8 @@ import { StudentProfileEdit } from './pages/StudentProfileEdit';
 import { StudentClassesPage } from './pages/StudentClassesPage';
 import { InviteRegistrationPage } from './pages/InviteRegistrationPage';
 import { AuthPage } from './pages/AuthPage';
+import { MessagesPage } from './pages/MessagesPage';
+import { IncomingMessageToast } from './components/IncomingMessageToast';
 import { AlertCircle, Loader2 } from 'lucide-react';
 
 const RootRedirect: React.FC = () => {
@@ -57,6 +59,7 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {children}
         </main>
       </div>
+      <IncomingMessageToast />
       <Footer />
     </div>
   );
@@ -173,6 +176,32 @@ export function App() {
             element={
               <ProtectedLayout>
                 <StudentClassesPage />
+              </ProtectedLayout>
+            }
+          />
+
+          {/* Messages Routes */}
+          <Route
+            path="/messages"
+            element={
+              <ProtectedLayout>
+                <MessagesPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/mentor/messages"
+            element={
+              <ProtectedLayout>
+                <MessagesPage />
+              </ProtectedLayout>
+            }
+          />
+          <Route
+            path="/student/messages"
+            element={
+              <ProtectedLayout>
+                <MessagesPage />
               </ProtectedLayout>
             }
           />

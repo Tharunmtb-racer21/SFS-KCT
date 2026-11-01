@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
@@ -35,7 +35,7 @@ export const MentorDashboard: React.FC = () => {
   const [overdueDays, setOverdueDays] = useState<number>(3);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(new Date());
 
-  const loadDashboardData = async () => {
+  const loadDashboardData = async (isInitial = false) => {
     if (!activeClass) {
       setEnrollments([]);
       setClassPosts([]);
@@ -43,7 +43,9 @@ export const MentorDashboard: React.FC = () => {
       return;
     }
 
-    setIsLoading(true);
+    if (isInitial && enrollments.length === 0) {
+      setIsLoading(true);
+    }
     setErrorMsg(null);
     try {
       if (activeMode === 'production') {
@@ -68,16 +70,18 @@ export const MentorDashboard: React.FC = () => {
       console.error('Failed to load dashboard:', err);
       setErrorMsg(err.message || 'Failed to load dashboard metrics.');
     } finally {
-      setIsLoading(false);
+      if (isInitial) {
+        setIsLoading(false);
+      }
     }
   };
 
+  const isFirstMountRef = useRef(true);
+
   useEffect(() => {
-    loadDashboardData();
-    const interval = setInterval(() => {
-      loadDashboardData();
-    }, 4000);
-    return () => clearInterval(interval);
+    const isFirst = isFirstMountRef.current;
+    isFirstMountRef.current = false;
+    loadDashboardData(isFirst);
   }, [activeClass?.id, activeMode, enrollmentVersion]);
 
   const analytics = useMemo(() => {
@@ -239,7 +243,7 @@ export const MentorDashboard: React.FC = () => {
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{errorMsg}</span>
           </div>
-          <button onClick={loadDashboardData} className="text-xs font-bold underline hover:text-rose-950">
+          <button onClick={() => loadDashboardData()} className="text-xs font-bold underline hover:text-rose-950">
             Retry
           </button>
         </div>

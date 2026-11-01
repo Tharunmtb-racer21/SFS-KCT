@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Profile, ClassGroup, NotificationItem } from '../types';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useRef } from 'react';
+import { Profile, ClassGroup, NotificationItem, DirectMessage } from '../types';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -12,6 +12,10 @@ interface AppContextType {
   classes: ClassGroup[];
   notifications: NotificationItem[];
   unreadNotificationCount: number;
+  unreadMessageCount: number;
+  incomingToastMessage: DirectMessage | null;
+  dismissIncomingToast: () => void;
+  refreshUnreadMessageCount: () => Promise<void>;
   isConfigured: boolean;
   activeMode: AppMode;
   productionError: string | null;
@@ -25,7 +29,7 @@ interface AppContextType {
   switchUser: (userId: string) => void;
   login: (email: string, password?: string) => Promise<boolean>;
   logout: () => Promise<void>;
-  refreshData: () => Promise<void>;
+  refreshData: (isBackground?: boolean) => Promise<void>;
   markNotificationRead: (id: string) => Promise<void>;
   markAllNotificationsRead: () => Promise<void>;
   resetDemoData: () => void;
@@ -46,7 +50,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const [activeMode, setActiveModeState] = useState<AppMode>(initialMode);
   const [productionError, setProductionError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
-  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(() => {
+    if (initialMode === 'demo') return false;
+    const saved = localStorage.getItem('mentorpulse_auth_profile');
+    return !saved;
+  });
   const [enrollmentVersion, setEnrollmentVersion] = useState<number>(0);
 
   const [currentUser, setCurrentUser] = useState<Profile | null>(() => {
@@ -64,9 +72,78 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     return null;
   });
 
-  const [classes, setClasses] = useState<ClassGroup[]>([]);
-  const [activeClass, setActiveClass] = useState<ClassGroup | null>(null);
+  const [classes, setClasses] = useState<ClassGroup[]>(() => {
+    if (initialMode === 'demo') {
+      const user = appStore.getCurrentUser();
+      if (user) {
+        return user.role === 'mentor'
+          ? appStore.getClassesForMentor(user.id)
+          : appStore.getEnrollmentsForStudent(user.id).filter(e => e.status === 'approved').map(e => e.class).filter(Boolean);
+      }
+      return [];
+    }
+    try {
+      const saved = localStorage.getItem('mentorpulse_cached_classes');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [activeClass, setActiveClass] = useState<ClassGroup | null>(() => {
+    if (initialMode === 'demo') {
+      const user = appStore.getCurrentUser();
+      if (user) {
+        const cls = user.role === 'mentor'
+          ? appStore.getClassesForMentor(user.id)
+          : appStore.getEnrollmentsForStudent(user.id).filter(e => e.status === 'approved').map(e => e.class).filter(Boolean);
+        const selId = appStore.getSelectedClassId();
+        return cls.find(c => c.id === selId) || cls[0] || null;
+      }
+      return null;
+    }
+    try {
+      const saved = localStorage.getItem('mentorpulse_cached_active_class');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      return null;
+    }
+  });
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadMessageCount, setUnreadMessageCount] = useState<number>(0);
+  const [incomingToastMessage, setIncomingToastMessage] = useState<DirectMessage | null>(null);
+  const toastTimeoutRef = useRef<any>(null);
+
+  const dismissIncomingToast = () => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setIncomingToastMessage(null);
+  };
+
+  const triggerToast = (msg: DirectMessage) => {
+    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    setIncomingToastMessage(msg);
+    toastTimeoutRef.current = setTimeout(() => {
+      setIncomingToastMessage(null);
+    }, 7000);
+  };
+
+  const refreshUnreadMessageCount = async () => {
+    if (!currentUser?.id) {
+      setUnreadMessageCount(0);
+      return;
+    }
+    try {
+      if (activeMode === 'production') {
+        const count = await supabaseService.getUnreadMessagesCount(currentUser.id);
+        setUnreadMessageCount(count);
+      } else {
+        const count = appStore.getUnreadMessagesCount(currentUser.id);
+        setUnreadMessageCount(count);
+      }
+    } catch (e) {
+      console.warn('Failed refreshing unread message count:', e);
+    }
+  };
 
   const setActiveMode = (newMode: AppMode) => {
     if (newMode === 'production' && !isSupabaseConfigured) {
@@ -85,8 +162,11 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   };
 
   // --- Core Refresh Logic ---
-  const refreshData = async () => {
-    setIsLoading(true);
+  const refreshData = async (isBackground = false) => {
+    // Only show full loader if there is no current user data already rendered
+    if (!isBackground && !currentUser) {
+      setIsLoading(true);
+    }
 
     if (activeMode === 'demo') {
       // Demo Mode: Synchronous Local Storage store
@@ -98,33 +178,55 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           if (user.role === 'mentor') {
             const mentorClasses = appStore.getClassesForMentor(user.id);
             setClasses(mentorClasses);
+            try {
+              localStorage.setItem('mentorpulse_cached_classes', JSON.stringify(mentorClasses));
+            } catch {}
 
             const currentActiveId = appStore.getSelectedClassId();
             const active = mentorClasses.find(c => c.id === currentActiveId) || mentorClasses[0] || null;
             setActiveClass(active);
-            if (active && active.id !== currentActiveId) {
-              appStore.setSelectedClassId(active.id);
+            if (active) {
+              try {
+                localStorage.setItem('mentorpulse_cached_active_class', JSON.stringify(active));
+              } catch {}
+              if (active.id !== currentActiveId) {
+                appStore.setSelectedClassId(active.id);
+              }
             }
           } else {
             const studentEnrollments = appStore.getEnrollmentsForStudent(user.id);
-            const studentClasses = studentEnrollments.map(e => e.class).filter(Boolean);
+            const studentClasses = studentEnrollments
+              .filter(e => e.status === 'approved')
+              .map(e => e.class)
+              .filter(Boolean);
             setClasses(studentClasses);
+            try {
+              localStorage.setItem('mentorpulse_cached_classes', JSON.stringify(studentClasses));
+            } catch {}
 
             const currentActiveId = appStore.getSelectedClassId();
             const active = studentClasses.find(c => c.id === currentActiveId) || studentClasses[0] || null;
             setActiveClass(active);
+            if (active) {
+              try {
+                localStorage.setItem('mentorpulse_cached_active_class', JSON.stringify(active));
+              } catch {}
+            }
           }
 
           setNotifications(appStore.getNotificationsForUser(user.id));
+          setUnreadMessageCount(appStore.getUnreadMessagesCount(user.id));
         } else {
           setClasses([]);
           setActiveClass(null);
           setNotifications([]);
+          setUnreadMessageCount(0);
         }
       } catch (err: any) {
         console.error('Demo store refresh error:', err);
       } finally {
-        setIsLoading(false);
+        if (!isBackground) setIsLoading(false);
+        setIsAuthLoading(false);
       }
       return;
     }
@@ -140,28 +242,49 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         if (user.role === 'mentor') {
           const mentorClasses = await supabaseService.getClassesForMentor(user.id);
           setClasses(mentorClasses);
+          try {
+            localStorage.setItem('mentorpulse_cached_classes', JSON.stringify(mentorClasses));
+          } catch {}
 
           const currentActiveId = appStore.getSelectedClassId();
           const active = mentorClasses.find(c => c.id === currentActiveId) || mentorClasses[0] || null;
           setActiveClass(active);
-          if (active && active.id !== currentActiveId) {
-            appStore.setSelectedClassId(active.id);
+          if (active) {
+            try {
+              localStorage.setItem('mentorpulse_cached_active_class', JSON.stringify(active));
+            } catch {}
+            if (active.id !== currentActiveId) {
+              appStore.setSelectedClassId(active.id);
+            }
           }
         } else {
           const studentClasses = await supabaseService.getClassesForStudent(user.id);
           setClasses(studentClasses);
+          try {
+            localStorage.setItem('mentorpulse_cached_classes', JSON.stringify(studentClasses));
+          } catch {}
 
           const currentActiveId = appStore.getSelectedClassId();
           const active = studentClasses.find(c => c.id === currentActiveId) || studentClasses[0] || null;
           setActiveClass(active);
+          if (active) {
+            try {
+              localStorage.setItem('mentorpulse_cached_active_class', JSON.stringify(active));
+            } catch {}
+          }
         }
 
-        const notifs = await supabaseService.getNotifications(user.id);
+        const [notifs, unreadCount] = await Promise.all([
+          supabaseService.getNotifications(user.id),
+          supabaseService.getUnreadMessagesCount(user.id),
+        ]);
         setNotifications(notifs);
+        setUnreadMessageCount(unreadCount);
       } else {
         setClasses([]);
         setActiveClass(null);
         setNotifications([]);
+        setUnreadMessageCount(0);
       }
     } catch (err: any) {
       // DO NOT silently fall back to mock data! Report genuine production error.
@@ -170,15 +293,16 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       setClasses([]);
       setActiveClass(null);
       setNotifications([]);
+      setUnreadMessageCount(0);
     } finally {
-      setIsLoading(false);
+      if (!isBackground) setIsLoading(false);
       setIsAuthLoading(false);
     }
   };
 
   const triggerEnrollmentUpdate = () => {
     setEnrollmentVersion((v) => v + 1);
-    refreshData();
+    refreshData(true);
     try {
       localStorage.setItem('mentorpulse_cross_tab_enrollment', Date.now().toString());
       if (typeof BroadcastChannel !== 'undefined') {
@@ -195,7 +319,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     // 1. Listen for local / Demo Mode enrollment updates
     const handleEnrollmentEvent = () => {
       setEnrollmentVersion((v) => v + 1);
-      refreshData();
+      refreshData(true);
     };
     window.addEventListener('mentorpulse:enrollment_update', handleEnrollmentEvent);
 
@@ -206,7 +330,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         bc = new BroadcastChannel('mentorpulse_enrollment_bus');
         bc.onmessage = () => {
           setEnrollmentVersion((v) => v + 1);
-          refreshData();
+          refreshData(true);
         };
       } catch {}
     }
@@ -214,15 +338,46 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     const handleStorageEvent = (e: StorageEvent) => {
       if (e.key === 'mentorpulse_cross_tab_enrollment') {
         setEnrollmentVersion((v) => v + 1);
-        refreshData();
+        refreshData(true);
       }
     };
     window.addEventListener('storage', handleStorageEvent);
+
+    // Message events in Demo Mode / Cross-tab
+    const handleNewMessage = (e: any) => {
+      const msg = e.detail as DirectMessage;
+      if (currentUser?.id && msg && msg.recipient_id === currentUser.id) {
+        setUnreadMessageCount((prev) => prev + 1);
+        triggerToast(msg);
+      }
+    };
+    window.addEventListener('mentorpulse:new_message', handleNewMessage);
+
+    const handleMessagesRead = () => {
+      refreshUnreadMessageCount();
+    };
+    window.addEventListener('mentorpulse:messages_read', handleMessagesRead);
+
+    let msgBc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        msgBc = new BroadcastChannel('mentorpulse_messages_bus');
+        msgBc.onmessage = (ev) => {
+          if (ev.data?.type === 'NEW_MESSAGE' && ev.data.message?.recipient_id === currentUser?.id) {
+            setUnreadMessageCount((prev) => prev + 1);
+            triggerToast(ev.data.message);
+          } else if (ev.data?.type === 'MESSAGES_READ') {
+            refreshUnreadMessageCount();
+          }
+        };
+      } catch {}
+    }
 
     // 2. Realtime Subscriptions in Production Mode
     let authSubscription: any = null;
     let enrollmentChannel: any = null;
     let notifChannel: any = null;
+    let unsubscribeUserMessages: (() => void) | null = null;
 
     if (activeMode === 'production' && supabase && isSupabaseConfigured) {
       // Auth state changes
@@ -242,7 +397,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       });
       authSubscription = subscription;
 
-      // Realtime enrollment table changes (updates both student & faculty screens instantly)
+      // Realtime enrollment table changes (updates both student & faculty screens instantly without full reload)
       const channelId = `realtime_enrollments_${Date.now()}`;
       enrollmentChannel = supabase
         .channel(channelId)
@@ -251,7 +406,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
           { event: '*', schema: 'public', table: 'class_enrollments' },
           () => {
             setEnrollmentVersion((v) => v + 1);
-            refreshData();
+            refreshData(true);
           }
         )
         .subscribe();
@@ -277,16 +432,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
             }
           )
           .subscribe();
+
+        // Realtime user messages subscription
+        unsubscribeUserMessages = supabaseService.subscribeToUserMessages(
+          currentUser.id,
+          (newMsg) => {
+            setUnreadMessageCount((prev) => prev + 1);
+            triggerToast(newMsg);
+          },
+          () => {
+            refreshUnreadMessageCount();
+          }
+        );
       }
     }
 
     return () => {
       window.removeEventListener('mentorpulse:enrollment_update', handleEnrollmentEvent);
       window.removeEventListener('storage', handleStorageEvent);
+      window.removeEventListener('mentorpulse:new_message', handleNewMessage);
+      window.removeEventListener('mentorpulse:messages_read', handleMessagesRead);
       if (bc) bc.close();
+      if (msgBc) msgBc.close();
       if (authSubscription) authSubscription.unsubscribe();
       if (enrollmentChannel && supabase) supabase.removeChannel(enrollmentChannel);
       if (notifChannel && supabase) supabase.removeChannel(notifChannel);
+      if (unsubscribeUserMessages) unsubscribeUserMessages();
     };
   }, [activeMode, currentUser?.id]);
 
@@ -351,6 +522,8 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const logout = async () => {
     localStorage.removeItem('mentorpulse_auth_profile');
+    localStorage.removeItem('mentorpulse_cached_classes');
+    localStorage.removeItem('mentorpulse_cached_active_class');
     if (activeMode === 'production') {
       try {
         await supabaseService.signOut();
@@ -425,6 +598,10 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
         classes,
         notifications,
         unreadNotificationCount,
+        unreadMessageCount,
+        incomingToastMessage,
+        dismissIncomingToast,
+        refreshUnreadMessageCount,
         isConfigured: isSupabaseConfigured,
         activeMode,
         productionError,

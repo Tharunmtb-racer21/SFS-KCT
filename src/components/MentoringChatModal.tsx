@@ -32,16 +32,25 @@ export const MentoringChatModal: React.FC<MentoringChatModalProps> = ({
   studentName,
   mentorName,
 }) => {
-  const { currentUser, activeMode, activeClass } = useApp();
+  const { currentUser, activeMode, activeClass, classes, refreshUnreadMessageCount } = useApp();
 
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const isRemovedFromClass = Boolean(
+    currentUser?.role === 'student' &&
+    classId &&
+    classes.length > 0 &&
+    !classes.some(c => c.id === classId)
+  );
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isAtBottomRef = useRef(true);
 
   // Compute deterministic conversation ID: conv_{classId}_{studentId}
   const conversationId = `conv_${classId}_${targetStudentId}`;
@@ -56,10 +65,18 @@ export const MentoringChatModal: React.FC<MentoringChatModalProps> = ({
     messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' });
   };
 
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 80;
+  };
+
   // Load conversation messages
-  const loadMessages = async () => {
+  const loadMessages = async (isInitial = false) => {
     if (!isOpen || !conversationId) return;
-    setIsLoading(true);
+    if (isInitial && messages.length === 0) {
+      setIsLoading(true);
+    }
     setErrorMsg(null);
     try {
       let loaded: DirectMessage[] = [];
@@ -77,27 +94,25 @@ export const MentoringChatModal: React.FC<MentoringChatModalProps> = ({
         } else {
           appStore.markMessagesAsRead(conversationId, currentUser.id);
         }
+        await refreshUnreadMessageCount();
       }
     } catch (err: any) {
       console.error('Failed to load messages:', err);
       setErrorMsg(err.message || 'Failed to load conversation history.');
     } finally {
-      setIsLoading(false);
-      setTimeout(() => scrollToBottom(false), 50);
+      if (isInitial) {
+        setIsLoading(false);
+        setTimeout(() => scrollToBottom(false), 50);
+      } else if (isAtBottomRef.current) {
+        scrollToBottom(true);
+      }
     }
   };
 
   useEffect(() => {
     if (isOpen) {
-      loadMessages();
+      loadMessages(true);
       inputRef.current?.focus();
-
-      // Mobile live sync interval to guarantee instant delivery even if WebSocket sleeps
-      const pollInterval = setInterval(() => {
-        loadMessages();
-      }, 2500);
-
-      return () => clearInterval(pollInterval);
     }
   }, [isOpen, conversationId, activeMode]);
 
@@ -110,16 +125,19 @@ export const MentoringChatModal: React.FC<MentoringChatModalProps> = ({
     if (activeMode === 'production') {
       unsubscribeRealtime = supabaseService.subscribeToMessages(
         conversationId,
-        (newMsg) => {
+        async (newMsg) => {
           setMessages((prev) => {
             // Deduplicate incoming messages
             if (prev.some((m) => m.id === newMsg.id)) return prev;
             return [...prev, newMsg];
           });
-          scrollToBottom(true);
+          if (isAtBottomRef.current) {
+            scrollToBottom(true);
+          }
           // Mark as read if sent to current user
           if (currentUser && newMsg.recipient_id === currentUser.id) {
-            supabaseService.markMessagesAsRead(conversationId, currentUser.id);
+            await supabaseService.markMessagesAsRead(conversationId, currentUser.id);
+            await refreshUnreadMessageCount();
           }
         },
         (updatedMsg) => {
@@ -138,13 +156,21 @@ export const MentoringChatModal: React.FC<MentoringChatModalProps> = ({
           if (prev.some((m) => m.id === msg.id)) return prev;
           return [...prev, msg];
         });
-        scrollToBottom(true);
+        if (isAtBottomRef.current) {
+          scrollToBottom(true);
+        }
+        if (currentUser && msg.recipient_id === currentUser.id) {
+          appStore.markMessagesAsRead(conversationId, currentUser.id);
+          refreshUnreadMessageCount();
+        }
       }
     };
+    window.addEventListener('mentorpulse:new_message', handleLocalMessage);
     window.addEventListener('mentorpulse:message_update', handleLocalMessage);
 
     return () => {
       if (unsubscribeRealtime) unsubscribeRealtime();
+      window.removeEventListener('mentorpulse:new_message', handleLocalMessage);
       window.removeEventListener('mentorpulse:message_update', handleLocalMessage);
     };
   }, [isOpen, conversationId, activeMode, currentUser?.id]);
@@ -355,36 +381,43 @@ export const MentoringChatModal: React.FC<MentoringChatModalProps> = ({
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input Bar */}
-        <form onSubmit={handleSendMessage} className="p-3 bg-white border-t border-slate-200 flex items-end gap-2 shrink-0">
-          <div className="flex-1 min-w-0 relative">
-            <textarea
-              ref={inputRef}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isSending}
-              rows={2}
-              placeholder={`Write a mentoring message to ${otherPersonRole.toLowerCase()}... (Press Enter to send, Shift+Enter for new line)`}
-              className="w-full resize-none p-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all"
-            />
+        {/* Input Bar or Removal Notice */}
+        {isRemovedFromClass ? (
+          <div className="p-4 bg-amber-50 border-t border-amber-200 text-amber-800 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>You are no longer enrolled in this class group. Direct messaging is preserved in read-only mode.</span>
           </div>
+        ) : (
+          <form onSubmit={handleSendMessage} className="p-3 bg-white border-t border-slate-200 flex items-end gap-2 shrink-0">
+            <div className="flex-1 min-w-0 relative">
+              <textarea
+                ref={inputRef}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={isSending}
+                rows={2}
+                placeholder={`Write a mentoring message to ${otherPersonRole.toLowerCase()}... (Press Enter to send, Shift+Enter for new line)`}
+                className="w-full resize-none p-2.5 text-xs rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-600 disabled:bg-slate-100 disabled:cursor-not-allowed transition-all"
+              />
+            </div>
 
-          <button
-            type="submit"
-            disabled={!inputText.trim() || isSending}
-            className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 cursor-pointer h-[42px]"
-          >
-            {isSending ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <>
-                <span>Send</span>
-                <Send className="w-3.5 h-3.5" />
-              </>
-            )}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={!inputText.trim() || isSending}
+              className="px-4 py-2.5 bg-teal-700 hover:bg-teal-800 active:scale-95 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 cursor-pointer h-[42px]"
+            >
+              {isSending ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <span>Send</span>
+                  <Send className="w-3.5 h-3.5" />
+                </>
+              )}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   );

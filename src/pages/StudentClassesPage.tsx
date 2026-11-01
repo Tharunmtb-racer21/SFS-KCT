@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { appStore } from '../services/store';
 import { supabaseService } from '../services/supabaseService';
@@ -30,9 +30,11 @@ export const StudentClassesPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeChatClass, setActiveChatClass] = useState<ClassGroup | null>(null);
 
-  const loadStudentClasses = async () => {
+  const loadStudentClasses = async (isInitial = false) => {
     if (!currentUser) return;
-    setIsLoading(true);
+    if (isInitial && enrollments.length === 0) {
+      setIsLoading(true);
+    }
     setLoadError(null);
     try {
       if (activeMode === 'production') {
@@ -46,17 +48,44 @@ export const StudentClassesPage: React.FC = () => {
       console.error('Failed to load classes:', err);
       setLoadError(err.message || 'Failed to load enrolled classes.');
     } finally {
-      setIsLoading(false);
+      if (isInitial) {
+        setIsLoading(false);
+      }
     }
   };
 
+  const isFirstMountRef = useRef(true);
+
   useEffect(() => {
-    loadStudentClasses();
+    const isFirst = isFirstMountRef.current;
+    isFirstMountRef.current = false;
+    loadStudentClasses(isFirst);
   }, [currentUser?.id, activeMode, enrollmentVersion]);
 
   if (!currentUser) {
     return <div className="p-8 text-center text-slate-500">Please sign in to view your classes.</div>;
   }
+
+  const handleReapply = async (classId: string) => {
+    if (!currentUser) return;
+    setIsSubmitting(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+    try {
+      if (activeMode === 'production') {
+        await supabaseService.requestEnrollment(classId, currentUser.id);
+      } else {
+        appStore.requestEnrollment(classId, currentUser.id);
+      }
+      setSuccessMsg('Re-enrollment application submitted to faculty mentor.');
+      await loadStudentClasses(false);
+      triggerEnrollmentUpdate();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to re-apply for class.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleJoinClassByToken = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -171,7 +200,7 @@ export const StudentClassesPage: React.FC = () => {
             <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
             <span>{loadError}</span>
           </div>
-          <button onClick={loadStudentClasses} className="text-xs font-bold underline hover:text-rose-950">
+          <button onClick={() => loadStudentClasses()} className="text-xs font-bold underline hover:text-rose-950">
             Retry
           </button>
         </div>
@@ -198,12 +227,17 @@ export const StudentClassesPage: React.FC = () => {
             if (!c) return null;
             const isApproved = e.status === 'approved';
             const isPending = e.status === 'pending';
+            const isRemoved = e.status === 'removed';
 
             return (
               <div
                 key={e.id}
                 className={`bg-white rounded-2xl border p-5 shadow-xs flex flex-col justify-between ${
-                  isPending ? 'border-amber-200 bg-amber-50/20' : 'border-slate-200'
+                  isPending 
+                    ? 'border-amber-200 bg-amber-50/20' 
+                    : isRemoved
+                    ? 'border-rose-200 bg-rose-50/20'
+                    : 'border-slate-200'
                 }`}
               >
                 <div>
@@ -215,9 +249,13 @@ export const StudentClassesPage: React.FC = () => {
                       <h3 className="text-base font-bold text-navy-950 mt-1">{c.name}</h3>
                     </div>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      isApproved ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      isApproved 
+                        ? 'bg-emerald-100 text-emerald-800' 
+                        : isRemoved
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-amber-100 text-amber-800'
                     }`}>
-                      {isApproved ? 'Approved Member' : 'Pending Mentor Review'}
+                      {isApproved ? 'Approved Member' : isRemoved ? 'Removed from Class' : 'Pending Mentor Review'}
                     </span>
                   </div>
 
@@ -237,6 +275,12 @@ export const StudentClassesPage: React.FC = () => {
                       Your enrollment is currently pending faculty mentor review. Once approved, the class feed and weekly reports will unlock.
                     </div>
                   )}
+
+                  {isRemoved && (
+                    <div className="mt-3 p-3 bg-rose-50 rounded-xl border border-rose-200 text-rose-800 text-xs">
+                      You were removed from this class by your faculty mentor. Your historical progress submissions and reports remain saved in your university profile.
+                    </div>
+                  )}
                 </div>
 
                 {isApproved && (
@@ -246,18 +290,30 @@ export const StudentClassesPage: React.FC = () => {
                         setActiveClassId(c.id);
                         navigate('/student/feed');
                       }}
-                      className="flex-1 py-1.5 bg-navy-50 hover:bg-navy-100 text-navy-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                      className="flex-1 py-1.5 bg-navy-50 hover:bg-navy-100 text-navy-900 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
                     >
                       Open Progress Stream
                       <ExternalLink className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => setActiveChatClass(c)}
-                      className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-teal-200"
+                      className="px-3 py-1.5 bg-teal-50 hover:bg-teal-100 text-teal-800 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors border border-teal-200 cursor-pointer"
                       title="Direct message faculty mentor"
                     >
                       <MessageSquare className="w-3.5 h-3.5 text-teal-700" />
                       Mentor Chat
+                    </button>
+                  </div>
+                )}
+
+                {isRemoved && (
+                  <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-end">
+                    <button
+                      onClick={() => handleReapply(c.id)}
+                      disabled={isSubmitting}
+                      className="px-3 py-1.5 bg-teal-600 hover:bg-teal-700 active:scale-95 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      Re-apply to Join
                     </button>
                   </div>
                 )}

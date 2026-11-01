@@ -14,7 +14,8 @@ import {
   AlertTriangle,
   X,
   Settings,
-  HelpCircle
+  HelpCircle,
+  MessageSquare
 } from 'lucide-react';
 import { NotificationDrawer } from './NotificationDrawer';
 import { useNavigate } from 'react-router-dom';
@@ -28,6 +29,7 @@ export const Navbar: React.FC = () => {
     switchUser, 
     logout, 
     unreadNotificationCount,
+    unreadMessageCount,
     isConfigured,
     activeMode,
     setActiveMode,
@@ -322,6 +324,21 @@ export const Navbar: React.FC = () => {
                 )}
               </div>
             ) : null}
+
+            {/* Visible Direct Messages Navigation Icon */}
+            <button
+              onClick={() => navigate('/messages')}
+              className="p-2 rounded-lg bg-navy-900 hover:bg-navy-800 text-slate-200 relative transition-colors"
+              aria-label="Direct Messages"
+              title={isMentor ? 'Student Direct Messages' : 'Mentor Direct Messages'}
+            >
+              <MessageSquare className="w-5 h-5" />
+              {unreadMessageCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-teal-400 text-slate-950 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center animate-pulse">
+                  {unreadMessageCount}
+                </span>
+              )}
+            </button>
 
             {/* Notification Bell */}
             <button

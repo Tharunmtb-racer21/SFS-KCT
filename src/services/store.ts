@@ -7,7 +7,9 @@ import {
   NotificationItem,
   EnrollmentStatus,
   ReactionType,
-  DirectMessage
+  DirectMessage,
+  ConversationSummary,
+  EnrollmentAuditLog
 } from '../types';
 import {
   INITIAL_PROFILES,
@@ -61,6 +63,7 @@ export class AppDataStore {
   private notifications: NotificationItem[];
   private postComments: any[];
   private messages: DirectMessage[];
+  private auditLogs: EnrollmentAuditLog[];
   private currentUserId: string;
   private currentClassId: string | null;
 
@@ -73,6 +76,7 @@ export class AppDataStore {
     this.notifications = loadFromStorage(STORAGE_KEYS.NOTIFICATIONS, INITIAL_NOTIFICATIONS);
     this.postComments = loadFromStorage(STORAGE_KEYS.POST_COMMENTS, []);
     this.messages = loadFromStorage(STORAGE_KEYS.MESSAGES, []);
+    this.auditLogs = loadFromStorage('mentorpulse_audit_logs', []);
     this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER_ID, 'mentor-1');
     this.currentClassId = loadFromStorage(STORAGE_KEYS.CURRENT_CLASS_ID, 'class-ece-2024');
   }
@@ -87,6 +91,7 @@ export class AppDataStore {
     this.notifications = [...INITIAL_NOTIFICATIONS];
     this.postComments = [];
     this.messages = [];
+    this.auditLogs = [];
     this.currentUserId = 'mentor-1';
     this.currentClassId = 'class-ece-2024';
 
@@ -98,6 +103,7 @@ export class AppDataStore {
     saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
     saveToStorage(STORAGE_KEYS.POST_COMMENTS, this.postComments);
     saveToStorage(STORAGE_KEYS.MESSAGES, this.messages);
+    saveToStorage('mentorpulse_audit_logs', this.auditLogs);
     saveToStorage(STORAGE_KEYS.CURRENT_USER_ID, this.currentUserId);
     saveToStorage(STORAGE_KEYS.CURRENT_CLASS_ID, this.currentClassId);
   }
@@ -390,6 +396,91 @@ export class AppDataStore {
     }
 
     return this.enrollments[index];
+  }
+
+  public removeStudentFromClass(
+    classId: string, 
+    studentId: string, 
+    mentorId: string, 
+    reason: string = 'Removed by faculty mentor'
+  ): ClassEnrollment {
+    const targetClass = this.getClassById(classId);
+    if (!targetClass) throw new Error('Class does not exist');
+
+    // Authorization: only authorized mentor of this class or admin can remove
+    if (targetClass.mentor_id !== mentorId) {
+      const mentorProfile = this.profiles.find((p) => p.id === mentorId);
+      if (mentorProfile?.role !== 'admin') {
+        throw new Error('Unauthorized: You are not authorized to manage enrollments for this class.');
+      }
+    }
+
+    const index = this.enrollments.findIndex(
+      (e) => e.class_id === classId && e.student_id === studentId
+    );
+    if (index === -1) throw new Error('Enrollment not found for this student and class.');
+
+    const now = new Date().toISOString();
+    this.enrollments[index] = {
+      ...this.enrollments[index],
+      status: 'removed',
+      reviewed_by: mentorId,
+      reviewed_at: now,
+    };
+    saveToStorage(STORAGE_KEYS.ENROLLMENTS, this.enrollments);
+
+    // Notify student about removal
+    this.notifications.push({
+      id: 'notif-' + Date.now(),
+      user_id: studentId,
+      title: 'Class Enrollment Notice',
+      message: `You have been removed from ${targetClass.name} by your faculty mentor.`,
+      link: '/student/classes',
+      read: false,
+      created_at: now,
+    });
+    saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+
+    // Log audit trail
+    const auditEntry: EnrollmentAuditLog = {
+      id: 'audit-' + Date.now(),
+      class_id: classId,
+      student_id: studentId,
+      mentor_id: mentorId,
+      action: 'removed',
+      reason,
+      created_at: now,
+    };
+    this.auditLogs.unshift(auditEntry);
+    saveToStorage('mentorpulse_audit_logs', this.auditLogs);
+
+    // Immediate cross-window & reactive update
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('mentorpulse:enrollment_update', {
+          detail: { ...this.enrollments[index], action: 'removed' },
+        })
+      );
+      try {
+        localStorage.setItem('mentorpulse_cross_tab_enrollment', Date.now().toString());
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('mentorpulse_enrollment_bus');
+          bc.postMessage({ type: 'ENROLLMENT_UPDATE', action: 'removed', time: Date.now() });
+          bc.close();
+        }
+      } catch {}
+    }
+
+    return this.enrollments[index];
+  }
+
+  public getEnrollmentAuditLogs(classId?: string): EnrollmentAuditLog[] {
+    if (classId) return this.auditLogs.filter((a) => a.class_id === classId);
+    return [...this.auditLogs];
+  }
+
+  public updateEnrollmentStatus(enrollmentId: string, status: EnrollmentStatus, mentorId: string = 'mentor-1'): ClassEnrollment {
+    return this.reviewEnrollment(enrollmentId, status, mentorId);
   }
 
   public approveAllPendingEnrollments(classId: string, mentorId: string): number {
@@ -814,11 +905,25 @@ export class AppDataStore {
       user_id: payload.recipient_id,
       title: 'New Mentoring Message',
       message: `${sender?.full_name || 'Sender'}: "${payload.content.slice(0, 35)}${payload.content.length > 35 ? '...' : ''}"`,
-      link: sender?.role === 'student' ? `/mentor/students` : `/student/feed`,
+      link: '/messages',
       read: false,
       created_at: new Date().toISOString(),
     });
     saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
+
+    // Reactive window and cross-tab delivery
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('mentorpulse:new_message', { detail: newMessage })
+      );
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('mentorpulse_messages_bus');
+          bc.postMessage({ type: 'NEW_MESSAGE', message: newMessage });
+          bc.close();
+        }
+      } catch {}
+    }
 
     return newMessage;
   }
@@ -835,7 +940,78 @@ export class AppDataStore {
     });
     if (changed) {
       saveToStorage(STORAGE_KEYS.MESSAGES, this.messages);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('mentorpulse:messages_read', { detail: { conversationId, currentUserId } })
+        );
+        try {
+          if (typeof BroadcastChannel !== 'undefined') {
+            const bc = new BroadcastChannel('mentorpulse_messages_bus');
+            bc.postMessage({ type: 'MESSAGES_READ', conversationId, currentUserId });
+            bc.close();
+          }
+        } catch {}
+      }
     }
+  }
+
+  public getUnreadMessagesCount(userId: string): number {
+    return this.messages.filter((m) => m.recipient_id === userId && m.status !== 'read').length;
+  }
+
+  public getUserConversations(userId: string): ConversationSummary[] {
+    const userMessages = this.messages.filter(
+      (m) => m.sender_id === userId || m.recipient_id === userId
+    );
+
+    const grouped = new Map<string, DirectMessage[]>();
+    for (const msg of userMessages) {
+      if (!grouped.has(msg.conversation_id)) {
+        grouped.set(msg.conversation_id, []);
+      }
+      grouped.get(msg.conversation_id)!.push(msg);
+    }
+
+    const summaries: ConversationSummary[] = [];
+
+    for (const [convId, convMsgs] of grouped.entries()) {
+      const sorted = [...convMsgs].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+      const lastMessage = sorted[0];
+      const otherUserId = lastMessage.sender_id === userId ? lastMessage.recipient_id : lastMessage.sender_id;
+      const otherProfile = this.profiles.find((p) => p.id === otherUserId) || {
+        id: otherUserId,
+        full_name: 'Member',
+        email: '',
+        role: 'student' as const,
+        skills: [],
+        created_at: '',
+        updated_at: '',
+      };
+
+      const classGroup = this.classes.find((c) => c.id === lastMessage.class_id);
+      const unreadCount = convMsgs.filter(
+        (m) => m.recipient_id === userId && m.status !== 'read'
+      ).length;
+
+      summaries.push({
+        conversationId: convId,
+        classId: lastMessage.class_id || classGroup?.id || '',
+        className: classGroup?.name || 'Class Mentoring',
+        otherUser: otherProfile,
+        lastMessage: {
+          ...lastMessage,
+          sender: this.profiles.find((p) => p.id === lastMessage.sender_id),
+          recipient: this.profiles.find((p) => p.id === lastMessage.recipient_id),
+        },
+        unreadCount,
+      });
+    }
+
+    return summaries.sort(
+      (a, b) => new Date(b.lastMessage.created_at).getTime() - new Date(a.lastMessage.created_at).getTime()
+    );
   }
 
   // --- Safe CSV Export for Mentor ---

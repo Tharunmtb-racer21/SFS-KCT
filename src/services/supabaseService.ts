@@ -9,7 +9,8 @@ import {
   EnrollmentStatus, 
   ReactionType,
   PostComment,
-  DirectMessage 
+  DirectMessage,
+  ConversationSummary 
 } from '../types';
 import { appStore } from './store';
 
@@ -543,7 +544,8 @@ export class SupabaseService {
     const { data, error } = await client
       .from('class_enrollments')
       .select('class:classes(*)')
-      .eq('student_id', studentId);
+      .eq('student_id', studentId)
+      .eq('status', 'approved');
 
     if (error) throw new Error(error.message);
     return (data || []).map((item: any) => item.class).filter(Boolean);
@@ -722,7 +724,7 @@ export class SupabaseService {
     const targetClass = await this.getClassById(classId);
     if (!targetClass) throw new Error('Class does not exist.');
 
-    // 1. Idempotency Check: if enrollment already exists, return it cleanly without throwing duplicate/RLS errors
+    // 1. Idempotency Check: if enrollment already exists, handle appropriately
     try {
       const { data: existingEnrollment } = await client
         .from('class_enrollments')
@@ -732,7 +734,39 @@ export class SupabaseService {
         .maybeSingle();
 
       if (existingEnrollment) {
-        return existingEnrollment;
+        if (existingEnrollment.status === 'approved' || existingEnrollment.status === 'pending') {
+          return existingEnrollment;
+        }
+
+        // If previously removed or rejected, re-enroll seamlessly
+        const targetStatus = targetClass.requires_approval ? 'pending' : 'approved';
+        const now = new Date().toISOString();
+        const { data: reEnrolled, error: reErr } = await client
+          .from('class_enrollments')
+          .update({
+            status: targetStatus,
+            requested_at: now,
+            reviewed_at: targetClass.requires_approval ? null : now,
+            reviewed_by: null,
+          })
+          .eq('id', existingEnrollment.id)
+          .select()
+          .single();
+
+        if (!reErr && reEnrolled) {
+          if (targetStatus === 'pending') {
+            try {
+              const student = await this.getProfile(studentId);
+              await client.from('notifications').insert({
+                user_id: targetClass.mentor_id,
+                title: 'New Student Registration Pending',
+                message: `${student?.full_name || 'A student'} requested to re-join ${targetClass.name}.`,
+                link: `/mentor/students?tab=pending`,
+              });
+            } catch {}
+          }
+          return reEnrolled;
+        }
       }
     } catch {
       // Continue to insert
@@ -819,6 +853,84 @@ export class SupabaseService {
         : `Your enrollment application for ${data.class?.name || 'the class'} was declined.`,
       link: status === 'approved' ? '/student/feed' : '/student/classes',
     });
+
+    return data;
+  }
+
+  public async removeStudentFromClass(
+    classId: string,
+    studentId: string,
+    mentorId: string,
+    reason: string = 'Removed by faculty mentor'
+  ): Promise<ClassEnrollment> {
+    const client = this.ensureClient();
+
+    // 1. Authoritative RPC removal
+    try {
+      const { data: rpcData, error: rpcError } = await client.rpc('remove_student_from_class', {
+        p_class_id: classId,
+        p_student_id: studentId,
+        p_reason: reason,
+      });
+
+      if (!rpcError && rpcData?.enrollment_id) {
+        const { data: updated } = await client
+          .from('class_enrollments')
+          .select('*, class:classes(*)')
+          .eq('id', rpcData.enrollment_id)
+          .maybeSingle();
+
+        if (updated) return updated;
+      }
+    } catch (rpcEx) {
+      console.warn('remove_student_from_class RPC fallback:', rpcEx);
+    }
+
+    // 2. Direct fallback update
+    const targetClass = await this.getClassById(classId);
+    if (!targetClass) throw new Error('Class does not exist.');
+    if (targetClass.mentor_id !== mentorId) {
+      const mentorProfile = await this.getProfile(mentorId);
+      if (mentorProfile?.role !== 'admin') {
+        throw new Error('Unauthorized: You are not authorized to manage enrollments for this class.');
+      }
+    }
+
+    const { data, error } = await client
+      .from('class_enrollments')
+      .update({
+        status: 'removed',
+        reviewed_at: new Date().toISOString(),
+        reviewed_by: mentorId,
+      })
+      .eq('class_id', classId)
+      .eq('student_id', studentId)
+      .select('*, class:classes(*)')
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    // Audit log
+    try {
+      await client.from('enrollment_audit_logs').insert({
+        enrollment_id: data.id,
+        class_id: classId,
+        student_id: studentId,
+        action: 'removed',
+        actor_id: mentorId,
+        reason,
+      });
+    } catch {}
+
+    // Notify student
+    try {
+      await client.from('notifications').insert({
+        user_id: studentId,
+        title: 'Class Enrollment Notice',
+        message: `You have been removed from ${targetClass.name} by your faculty mentor.`,
+        link: '/student/classes',
+      });
+    } catch {}
 
     return data;
   }
@@ -1662,6 +1774,151 @@ export class SupabaseService {
       // Fallback
       appStore.markMessagesAsRead(conversationId, currentUserId);
     }
+  }
+
+  public async getUnreadMessagesCount(userId: string): Promise<number> {
+    const client = this.ensureClient();
+    try {
+      const { count, error } = await client
+        .from('messages')
+        .select('*', { count: 'exact', head: true })
+        .eq('recipient_id', userId)
+        .neq('status', 'read');
+
+      if (error) {
+        if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+          return appStore.getUnreadMessagesCount(userId);
+        }
+        throw new Error(error.message);
+      }
+      return count || 0;
+    } catch {
+      return appStore.getUnreadMessagesCount(userId);
+    }
+  }
+
+  public async getUserConversations(userId: string): Promise<ConversationSummary[]> {
+    const client = this.ensureClient();
+    try {
+      const { data, error } = await client
+        .from('messages')
+        .select('*, class:classes(id, name)')
+        .or(`sender_id.eq.${userId},recipient_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        if (error.code === '42P01' || error.message?.includes('does not exist') || error.message?.includes('schema cache')) {
+          return appStore.getUserConversations(userId);
+        }
+        throw new Error(error.message);
+      }
+
+      if (!data || data.length === 0) return [];
+
+      const grouped = new Map<string, any[]>();
+      for (const msg of data) {
+        if (!grouped.has(msg.conversation_id)) {
+          grouped.set(msg.conversation_id, []);
+        }
+        grouped.get(msg.conversation_id)!.push(msg);
+      }
+
+      const otherUserIds = [...new Set(data.map((m: any) => (m.sender_id === userId ? m.recipient_id : m.sender_id)))];
+      const { data: profiles } = await client
+        .from('profiles')
+        .select('*')
+        .in('id', otherUserIds);
+
+      const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]));
+      const summaries: ConversationSummary[] = [];
+
+      for (const [convId, convMsgs] of grouped.entries()) {
+        const lastMessage = convMsgs[0];
+        const otherId = lastMessage.sender_id === userId ? lastMessage.recipient_id : lastMessage.sender_id;
+        const otherUser = profileMap.get(otherId) || {
+          id: otherId,
+          full_name: 'Member',
+          email: '',
+          role: 'student' as const,
+          skills: [],
+          created_at: '',
+          updated_at: '',
+        };
+
+        const unreadCount = convMsgs.filter((m: any) => m.recipient_id === userId && m.status !== 'read').length;
+
+        summaries.push({
+          conversationId: convId,
+          classId: lastMessage.class_id || lastMessage.class?.id || '',
+          className: lastMessage.class?.name || 'Class Mentoring',
+          otherUser,
+          lastMessage: {
+            ...lastMessage,
+            sender: lastMessage.sender_id === userId ? undefined : otherUser,
+            recipient: lastMessage.recipient_id === userId ? undefined : otherUser,
+          },
+          unreadCount,
+        });
+      }
+
+      return summaries;
+    } catch {
+      return appStore.getUserConversations(userId);
+    }
+  }
+
+  public subscribeToUserMessages(
+    userId: string,
+    onNewMessage: (msg: DirectMessage) => void,
+    onStatusUpdate?: (msg: DirectMessage) => void
+  ): () => void {
+    if (!supabase || !isSupabaseConfigured) return () => {};
+    const client = supabase;
+
+    const channelName = `user_messages_${userId}_${Date.now()}`;
+    const channel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `recipient_id=eq.${userId}`,
+        },
+        async (payload) => {
+          if (payload.new) {
+            const raw = payload.new as any;
+            const sender = await this.getProfile(raw.sender_id);
+            const recipient = await this.getProfile(raw.recipient_id);
+            onNewMessage({
+              ...raw,
+              sender: sender || undefined,
+              recipient: recipient || undefined,
+            });
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `recipient_id=eq.${userId}`,
+        },
+        async (payload) => {
+          if (payload.new && onStatusUpdate) {
+            const raw = payload.new as any;
+            onStatusUpdate(raw);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      if (client) client.removeChannel(channel);
+    };
   }
 
   // --- Realtime Subscriptions ---
