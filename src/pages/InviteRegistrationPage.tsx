@@ -30,6 +30,7 @@ export const InviteRegistrationPage: React.FC = () => {
   // Registration Form state for unauthenticated student
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [regNo, setRegNo] = useState('');
   const [department, setDepartment] = useState('');
   const [academicYear, setAcademicYear] = useState('');
@@ -188,11 +189,16 @@ export const InviteRegistrationPage: React.FC = () => {
     }
   };
 
-  // If new student registering through invite link (NO PASSWORD NEEDED)
+  // If new student registering through invite link
   const handleRegisterAndEnroll = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!fullName.trim() || !regNo.trim() || !email.trim()) {
       setFormError('Please enter Full Name, Student Register Number, and Institutional Email.');
+      return;
+    }
+
+    if (activeMode === 'production' && password.length < 6) {
+      setFormError('Please create a secure password of at least 6 characters.');
       return;
     }
 
@@ -205,6 +211,7 @@ export const InviteRegistrationPage: React.FC = () => {
           full_name: fullName.trim(),
           student_reg_no: regNo.trim().toUpperCase(),
           email: email.trim().toLowerCase(),
+          password: password.trim(),
           department: department.trim() || targetClass.department,
           academic_year: academicYear.trim() || targetClass.academic_year,
           section: section.trim() || undefined,
@@ -461,15 +468,27 @@ export const InviteRegistrationPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Contact Phone (WhatsApp)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Account Password * <span className="text-slate-400 font-normal">(Min 6 chars)</span></label>
                   <input
-                    type="text"
-                    placeholder="+91 98421 XXXXX"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    type="password"
+                    required={activeMode === 'production'}
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Contact Phone (WhatsApp)</label>
+                <input
+                  type="text"
+                  placeholder="+91 98421 XXXXX"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                />
               </div>
 
               <div>
@@ -494,10 +513,10 @@ export const InviteRegistrationPage: React.FC = () => {
                 />
               </div>
 
-              <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[11px] text-emerald-900 leading-relaxed flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 leading-relaxed flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
                 <span>
-                  <strong>No Password Required:</strong> You will be identified by your Student Register Number (<strong>{regNo || '25BEI...'}</strong>) and verified directly by faculty mentor <strong>{mentor?.full_name || 'Assigned Mentor'}</strong>.
+                  <strong>Authorized Enrollment:</strong> Registering will link your profile to <strong>{targetClass.name}</strong> under mentor <strong>{mentor?.full_name || 'Assigned Mentor'}</strong>.
                 </span>
               </div>
 

@@ -184,11 +184,12 @@ export class SupabaseService {
     };
   }
 
-  // --- Student Registration (Passwordless / Institutional Identity) ---
+  // --- Student Registration (Secure Institutional Identity) ---
   public async registerStudentWithoutPassword(
     studentData: {
       full_name: string;
       email: string;
+      password?: string;
       student_reg_no: string;
       department: string;
       academic_year?: string;
@@ -203,81 +204,99 @@ export class SupabaseService {
     const client = this.ensureClient();
     const cleanReg = studentData.student_reg_no.trim().toUpperCase();
     const cleanEmail = studentData.email.trim().toLowerCase();
-    const internalPassword = `KCT#${cleanReg.replace(/[^a-zA-Z0-9]/g, '')}!2026`;
+    const studentPassword = studentData.password || `KCT#${cleanReg.replace(/[^a-zA-Z0-9]/g, '')}!2026`;
+
+    // 1. Strict Duplicate Check: Prevent account takeover or overwriting existing users
+    const { data: existingProfile } = await client
+      .from('profiles')
+      .select('id, email, student_reg_no')
+      .or(`email.ilike.${cleanEmail},student_reg_no.ilike.${cleanReg}`)
+      .maybeSingle();
+
+    if (existingProfile) {
+      throw new Error(`An account with this institutional email (${cleanEmail}) or register number (${cleanReg}) is already registered. Please sign in with your password.`);
+    }
 
     let profile: Profile | null = null;
+    let userId: string | null = null;
 
-    // 1. First, check if a profile already exists with this email or register number
+    // 2. Try zero-friction RPC registration if migration 008/010 is present
     try {
-      const { data: existingProfile } = await client
-        .from('profiles')
-        .select('*')
-        .or(`email.ilike.${cleanEmail},student_reg_no.ilike.${cleanReg}`)
-        .maybeSingle();
+      const { data: rpcStudent, error: rpcErr } = await client.rpc('register_student_instant', {
+        p_full_name: studentData.full_name.trim(),
+        p_email: cleanEmail,
+        p_student_reg_no: cleanReg,
+        p_department: studentData.department,
+        p_password: studentPassword,
+      });
 
-      if (existingProfile) {
-        profile = existingProfile;
+      if (!rpcErr && rpcStudent?.user_id) {
+        userId = rpcStudent.user_id;
+        const p = await this.getProfile(rpcStudent.user_id);
+        if (p) profile = p;
       }
-    } catch (checkErr) {
-      console.warn('Profile existence check notice:', checkErr);
+    } catch (rpcEx) {
+      console.warn('register_student_instant RPC notice:', rpcEx);
     }
 
-    // 2. If no existing profile, register instantly with ZERO EMAILS via PostgreSQL RPC
+    // 3. Fallback to standard Supabase Auth registration
     if (!profile) {
-      // Step 2a: Try student-specific instant activation RPC
-      try {
-        const { data: rpcStudent, error: rpcErr } = await client.rpc('register_student_instant', {
-          p_full_name: studentData.full_name.trim(),
-          p_email: cleanEmail,
-          p_student_reg_no: cleanReg,
-          p_department: studentData.department,
-        });
+      const { data: authData, error: authErr } = await client.auth.signUp({
+        email: cleanEmail,
+        password: studentPassword,
+        options: {
+          data: {
+            role: 'student',
+            full_name: studentData.full_name.trim(),
+            student_reg_no: cleanReg,
+            department: studentData.department,
+          },
+        },
+      });
 
-        if (rpcStudent && rpcStudent.user_id) {
-          const p = await this.getProfile(rpcStudent.user_id);
-          if (p) profile = p;
-        }
-      } catch (rpcEx) {
-        console.warn('register_student_instant RPC notice:', rpcEx);
+      if (authErr) {
+        const err: any = new Error(authErr.message);
+        err.code = (authErr as any).code || (authErr as any).error_code;
+        throw err;
       }
 
-      // Step 2b: Highly reliable fallback via instant pre-confirmed faculty RPC + immediate student role assignment
-      if (!profile) {
+      if (authData.user) {
+        userId = authData.user.id;
+        const newProfile: Profile = {
+          id: authData.user.id,
+          role: 'student',
+          full_name: studentData.full_name.trim(),
+          email: cleanEmail,
+          student_reg_no: cleanReg,
+          department: studentData.department,
+          academic_year: studentData.academic_year,
+          phone: studentData.phone,
+          skills: studentData.skills || [],
+          career_goals: studentData.career_goals,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
         try {
-          const { data: instData, error: instErr } = await client.rpc('register_faculty_instant', {
-            p_email: cleanEmail,
-            p_password: internalPassword,
-            p_full_name: studentData.full_name.trim(),
-            p_department: studentData.department,
-            p_passcode: 'KCT-FACULTY-2026',
-          });
+          const { data: pData } = await client.from('profiles').upsert(newProfile).select().maybeSingle();
+          if (pData) profile = pData;
+        } catch {}
 
-          if (instData && instData.user_id) {
-            await client.from('profiles').update({
-              role: 'student',
-              student_reg_no: cleanReg,
-            }).eq('id', instData.user_id);
-
-            const p = await this.getProfile(instData.user_id);
-            if (p) profile = p;
-          }
-        } catch (instEx) {
-          console.warn('Instant registration fallback notice:', instEx);
-        }
+        if (!profile) profile = newProfile;
       }
     }
 
-    // 3. Auto sign-in with pre-confirmed student credentials
+    // 4. Authenticate session with user's verified password
     try {
       await client.auth.signInWithPassword({
         email: cleanEmail,
-        password: internalPassword,
+        password: studentPassword,
       });
     } catch (signInErr) {
-      console.warn('Student auto sign-in notice:', signInErr);
+      console.warn('Student sign-in notice:', signInErr);
     }
 
-    // 4. Fallback lookup by email if profile reference is still pending
+    // 5. Fallback lookup by email if profile reference is still pending
     if (!profile) {
       const { data: fallback } = await client
         .from('profiles')
@@ -287,10 +306,10 @@ export class SupabaseService {
       if (fallback) profile = fallback;
     }
 
-    // 5. Ultimate safe fallback: ensure student profile is never null
+    // 6. Ultimate safe fallback: ensure student profile is never null
     if (!profile) {
       profile = {
-        id: 'student-' + cleanReg.toLowerCase(),
+        id: userId || 'student-' + cleanReg.toLowerCase(),
         role: 'student',
         full_name: studentData.full_name.trim(),
         email: cleanEmail,
@@ -303,7 +322,7 @@ export class SupabaseService {
       };
     }
 
-    // 4. Update the profile with latest student details
+    // 7. Update the profile with latest student details
     const bioFormatted = studentData.section
       ? `${studentData.department} • ${studentData.academic_year || ''} (Section ${studentData.section})`
       : `${studentData.department} • ${studentData.academic_year || ''}`;
@@ -322,51 +341,52 @@ export class SupabaseService {
       updated_at: new Date().toISOString(),
     };
 
-    const { data: updatedProfile } = await client
-      .from('profiles')
-      .update(updates)
-      .eq('id', profile.id)
-      .select()
-      .maybeSingle();
-
-    return updatedProfile || { ...profile, ...updates };
-  }
-
-  public async signInStudentFast(regNoOrEmail: string): Promise<Profile> {
-    const client = this.ensureClient();
-    const query = regNoOrEmail.trim();
-
-    const { data, error } = await client
-      .from('profiles')
-      .select('*')
-      .or(`student_reg_no.ilike.${query},email.ilike.${query}`)
-      .eq('role', 'student')
-      .maybeSingle();
-
-    if (error) throw new Error(error.message);
-    if (!data) {
-      throw new Error(`No student found with Roll/Register Number or Email "${query}". Please verify your details or sign up through your class invitation link.`);
-    }
-
-    const internalPassword = `KCT#${data.student_reg_no?.replace(/[^a-zA-Z0-9]/g, '')}!2026`;
     try {
-      await client.auth.signInWithPassword({
-        email: data.email,
-        password: internalPassword,
-      });
-    } catch {
-      // Background session notice
-    }
+      const { data: updatedProfile } = await client
+        .from('profiles')
+        .update(updates)
+        .eq('id', profile.id)
+        .select()
+        .maybeSingle();
 
-    return data;
+      if (updatedProfile) return updatedProfile;
+    } catch {}
+
+    return { ...profile, ...updates };
   }
 
-  public async signIn(email: string, password: string): Promise<Profile> {
+  public async signInStudentFast(regNoOrEmail: string, password?: string): Promise<Profile> {
+    if (!password) {
+      throw new Error('Password is required for student authentication. Please enter your account password.');
+    }
+    return this.signIn(regNoOrEmail, password);
+  }
+
+  public async signIn(emailOrRegNo: string, password: string): Promise<Profile> {
+    if (!password || !password.trim()) {
+      throw new Error('Password is required for secure authentication.');
+    }
+
     const client = this.ensureClient();
-    const cleanEmail = email.trim().toLowerCase();
+    let targetEmail = emailOrRegNo.trim().toLowerCase();
+
+    // If identifier is not an email, resolve from student_reg_no
+    if (!targetEmail.includes('@')) {
+      const { data: profileRecord, error: pErr } = await client
+        .from('profiles')
+        .select('email')
+        .ilike('student_reg_no', emailOrRegNo.trim())
+        .maybeSingle();
+
+      if (pErr || !profileRecord?.email) {
+        throw new Error(`No registered student found with Register Number "${emailOrRegNo.trim()}". Please verify your register number or join via your class invitation link.`);
+      }
+      targetEmail = profileRecord.email.toLowerCase();
+    }
+
     const { data, error } = await client.auth.signInWithPassword({
-      email: cleanEmail,
-      password,
+      email: targetEmail,
+      password: password.trim(),
     });
 
     if (error) {
@@ -384,8 +404,8 @@ export class SupabaseService {
       const fallbackProfile: Profile = {
         id: data.user.id,
         role: (meta.role as any) || 'mentor',
-        full_name: meta.full_name || cleanEmail.split('@')[0],
-        email: cleanEmail,
+        full_name: meta.full_name || targetEmail.split('@')[0],
+        email: targetEmail,
         department: meta.department || 'Electronics and Communication Engineering',
         student_reg_no: meta.student_reg_no,
         academic_year: meta.academic_year,

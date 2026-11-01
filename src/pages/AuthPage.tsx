@@ -53,7 +53,7 @@ export const AuthPage: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [regNo, setRegNo] = useState('');
   const [department, setDepartment] = useState('Electronics and Communication Engineering');
-  const [facultyAccessCode, setFacultyAccessCode] = useState('KCT-FACULTY-2026');
+  const [facultyAccessCode, setFacultyAccessCode] = useState('');
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
 
@@ -118,7 +118,17 @@ export const AuthPage: React.FC = () => {
           return;
         }
 
-        const success = await login(cleanId);
+        if (activeMode === 'production' && !password.trim()) {
+          setParsedError({
+            title: 'Password Required',
+            message: 'Password is required to authenticate your student account.',
+            isRateLimit: false,
+            isRecoverable: true,
+          });
+          return;
+        }
+
+        const success = await login(cleanId, password.trim());
         if (success) {
           navigate('/student/classes');
         }
@@ -216,6 +226,16 @@ export const AuthPage: React.FC = () => {
           });
           return;
         }
+
+        if (activeMode === 'production' && password.length < 6) {
+          setParsedError({
+            title: 'Password Too Short',
+            message: 'Student password must be at least 6 characters in length to secure your account.',
+            isRateLimit: false,
+            isRecoverable: true,
+          });
+          return;
+        }
       }
 
       if (role === 'mentor') {
@@ -247,6 +267,7 @@ export const AuthPage: React.FC = () => {
           const profile = await supabaseService.registerStudentWithoutPassword({
             full_name: cleanName,
             email: cleanEmail,
+            password: password.trim(),
             student_reg_no: cleanReg,
             department: cleanDept,
           });
@@ -688,10 +709,39 @@ export const AuthPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[11px] text-emerald-900 leading-relaxed flex items-center gap-2">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="block text-xs font-semibold text-slate-700">
+                          Password *
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMode('forgot_password');
+                            clearMessages();
+                          }}
+                          className="text-[11px] text-teal-600 hover:text-teal-700 font-medium"
+                        >
+                          Forgot Password?
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="password"
+                          required={activeMode === 'production'}
+                          placeholder="••••••••••••"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-[11px] text-slate-600 leading-relaxed flex items-center gap-2">
+                      <ShieldCheck className="w-4 h-4 text-teal-600 shrink-0" />
                       <span>
-                        <strong>Instant Academic Login:</strong> Authenticate directly with your official college roll number or registered student email.
+                        <strong>Protected Authentication:</strong> Sign in with your registered college roll number or email and secure password.
                       </span>
                     </div>
 
@@ -873,28 +923,24 @@ export const AuthPage: React.FC = () => {
                   />
                 </div>
 
-                {role === 'mentor' ? (
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
-                      Password * {activeMode === 'production' && <span className="text-slate-400 font-normal">(Min 6 chars)</span>}
-                    </label>
-                    <input
-                      type="password"
-                      required={activeMode === 'production'}
-                      placeholder="••••••••••••"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
-                    />
-                  </div>
-                ) : (
-                  <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-xl text-[11px] text-emerald-900 leading-relaxed flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>
-                      <strong>No Password Needed:</strong> Your student account is authenticated by your Register Number (<strong>{regNo || '25BEI...'}</strong>).
-                    </span>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Password * {activeMode === 'production' && <span className="text-slate-400 font-normal">(Min 6 chars)</span>}
+                  </label>
+                  <input
+                    type="password"
+                    required={activeMode === 'production'}
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs focus:ring-2 focus:ring-teal-500"
+                  />
+                  {role === 'student' && (
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      Create a private password to secure your academic profile and daily progress posts.
+                    </p>
+                  )}
+                </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -916,21 +962,21 @@ export const AuthPage: React.FC = () => {
                       <label className="block text-xs font-semibold text-slate-700">
                         Faculty Access Passcode *
                       </label>
-                      <span className="text-[10px] text-slate-400">Approved college authorization</span>
+                      <span className="text-[10px] text-slate-400">Institutional authorization</span>
                     </div>
                     <div className="relative">
                       <KeyRound className="w-3.5 h-3.5 text-teal-600 absolute left-3 top-1/2 -translate-y-1/2" />
                       <input
-                        type="text"
+                        type="password"
                         required
-                        placeholder="KCT-FACULTY-2026"
+                        placeholder="Enter official faculty passcode"
                         value={facultyAccessCode}
                         onChange={(e) => setFacultyAccessCode(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-mono uppercase focus:ring-2 focus:ring-teal-500"
+                        className="w-full pl-8 pr-3 py-2 rounded-xl border border-slate-300 text-xs font-mono focus:ring-2 focus:ring-teal-500"
                       />
                     </div>
                     <p className="text-[10.5px] text-slate-500 mt-1">
-                      Enforcing college access control. Approved default passcode: <code className="text-teal-700 font-bold">KCT-FACULTY-2026</code>.
+                      Faculty onboarding requires confidential authorization issued by institutional administration.
                     </p>
                   </div>
                 )}

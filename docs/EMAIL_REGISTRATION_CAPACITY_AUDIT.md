@@ -102,3 +102,4 @@ VALUES
 ```
 
 This architecture completely decouples student admission from external SMTP limits, ensuring seamless onboarding for thousands of students simultaneously.
+

@@ -88,3 +88,4 @@ The two-sided functional parity test suite (`src/test/two_sided_parity.test.ts`)
 
 **Test Command**: `npm test`  
 **Result**: **99 / 99 tests passing across 6 test suites** (100% pass rate).
+

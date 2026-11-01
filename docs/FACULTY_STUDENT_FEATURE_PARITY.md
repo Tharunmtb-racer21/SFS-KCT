@@ -71,3 +71,4 @@ Incoming Message Toast   Activity Bell Badge (+1)
 ```
 
 Every user action generates both an immediate Optimistic UI update on the local client and a verified remote database mutation that broadcasts through Supabase Realtime channels and Cross-Tab Broadcast Channels.
+

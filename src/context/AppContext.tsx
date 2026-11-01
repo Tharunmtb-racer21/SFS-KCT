@@ -485,17 +485,14 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   const login = async (emailOrReg: string, password?: string): Promise<boolean> => {
     const clean = emailOrReg.trim();
     if (activeMode === 'production') {
-      if (!password) {
-        // Attempt student passwordless sign-in by Register Number or Email
-        const student = await supabaseService.signInStudentFast(clean);
-        localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(student));
-        setCurrentUser(student);
-        await refreshData();
-        return true;
+      if (!password || !password.trim()) {
+        throw new Error('Password is required for secure authentication. Please enter your account password.');
       }
 
-      // Faculty or password-based sign-in
-      await supabaseService.signIn(clean, password);
+      // Secure password-verified authentication (supports email or student register number)
+      const profile = await supabaseService.signIn(clean, password.trim());
+      localStorage.setItem('mentorpulse_auth_profile', JSON.stringify(profile));
+      setCurrentUser(profile);
       await refreshData();
       return true;
     }
