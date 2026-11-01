@@ -896,6 +896,9 @@ export class SupabaseService {
       }
     }
 
+    let targetEnrollment: any = null;
+
+    // 1. Try updating status to 'removed'
     const { data, error } = await client
       .from('class_enrollments')
       .update({
@@ -906,14 +909,45 @@ export class SupabaseService {
       .eq('class_id', classId)
       .eq('student_id', studentId)
       .select('*, class:classes(*)')
-      .single();
+      .maybeSingle();
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      // If remote database check constraint restricts to ('pending', 'approved', 'rejected')
+      if (
+        error.code === '23514' ||
+        error.message?.includes('class_enrollments_status_check') ||
+        error.message?.includes('violates check constraint')
+      ) {
+        console.warn('class_enrollments check constraint restricts "removed"; falling back to compatible "rejected" status.');
+        const fallbackRes = await client
+          .from('class_enrollments')
+          .update({
+            status: 'rejected',
+            reviewed_at: new Date().toISOString(),
+            reviewed_by: mentorId,
+          })
+          .eq('class_id', classId)
+          .eq('student_id', studentId)
+          .select('*, class:classes(*)')
+          .single();
+
+        if (fallbackRes.error) throw new Error(fallbackRes.error.message);
+        targetEnrollment = fallbackRes.data;
+      } else {
+        throw new Error(error.message);
+      }
+    } else {
+      targetEnrollment = data;
+    }
+
+    if (!targetEnrollment) {
+      throw new Error('Enrollment record not found for this student and class.');
+    }
 
     // Audit log
     try {
       await client.from('enrollment_audit_logs').insert({
-        enrollment_id: data.id,
+        enrollment_id: targetEnrollment.id,
         class_id: classId,
         student_id: studentId,
         action: 'removed',
@@ -932,7 +966,7 @@ export class SupabaseService {
       });
     } catch {}
 
-    return data;
+    return targetEnrollment;
   }
 
   public async approveAllPendingEnrollments(classId: string, mentorId: string): Promise<number> {
@@ -983,7 +1017,7 @@ export class SupabaseService {
         .select(`
           *,
           student:profiles(*),
-          reactions:post_reactions(*),
+          reactions:post_reactions(*, user:profiles(id, full_name, role, avatar_url)),
           feedback:post_feedback(*, mentor:profiles(*)),
           comments:post_comments(*, user:profiles(*))
         `)
@@ -991,9 +1025,9 @@ export class SupabaseService {
         .order('created_at', { ascending: false });
 
       if (!error && data) return data;
-      if (error && !error.message?.includes('post_comments')) throw new Error(error.message);
+      if (error && !error.message?.includes('post_comments') && !error.message?.includes('user')) throw new Error(error.message);
     } catch (err: any) {
-      if (!err.message?.includes('post_comments')) throw err;
+      if (!err.message?.includes('post_comments') && !err.message?.includes('user')) throw err;
     }
 
     // Graceful fallback: fetch posts then hydrate comments resiliently
@@ -1056,7 +1090,7 @@ export class SupabaseService {
         .select(`
           *,
           student:profiles(*),
-          reactions:post_reactions(*),
+          reactions:post_reactions(*, user:profiles(id, full_name, role, avatar_url)),
           feedback:post_feedback(*, mentor:profiles(*)),
           comments:post_comments(*, user:profiles(*))
         `)
@@ -1068,9 +1102,9 @@ export class SupabaseService {
 
       const { data, error } = await query.order('created_at', { ascending: false });
       if (!error && data) return data;
-      if (error && !error.message?.includes('post_comments')) throw new Error(error.message);
+      if (error && !error.message?.includes('post_comments') && !error.message?.includes('user')) throw new Error(error.message);
     } catch (err: any) {
-      if (!err.message?.includes('post_comments')) throw err;
+      if (!err.message?.includes('post_comments') && !err.message?.includes('user')) throw err;
     }
 
     let query = client
@@ -1223,6 +1257,28 @@ export class SupabaseService {
     if (error) throw new Error(error.message);
   }
 
+  private async notifyPostAuthorOfReaction(postId: string, userId: string, reactionType: ReactionType): Promise<void> {
+    try {
+      const client = this.ensureClient();
+      const { data: post } = await client.from('daily_posts').select('student_id, title').eq('id', postId).single();
+      if (post && post.student_id !== userId) {
+        const reactor = await this.getProfile(userId);
+        const isFaculty = reactor?.role === 'mentor' || reactor?.role === 'admin';
+        const notifTitle = isFaculty ? `Faculty Kudos: ${reactionType}` : `New Reaction: ${reactionType}`;
+        const notifMsg = `${reactor?.full_name || 'A classmate'} reacted ${reactionType} to "${post.title?.substring(0, 30) || 'your post'}..."`;
+
+        await client.from('notifications').insert({
+          user_id: post.student_id,
+          title: notifTitle,
+          message: notifMsg,
+          link: '/student/feed',
+        });
+      }
+    } catch (err) {
+      console.warn('Reaction notification notice:', err);
+    }
+  }
+
   public async reactToPost(postId: string, userId: string, reactionType: ReactionType): Promise<void> {
     const client = this.ensureClient();
 
@@ -1234,6 +1290,9 @@ export class SupabaseService {
         p_reaction_type: reactionType,
       });
       if (!rpcErr && rpcRes && rpcRes.success) {
+        if (rpcRes.action === 'added' || rpcRes.action === 'updated') {
+          await this.notifyPostAuthorOfReaction(postId, userId, reactionType);
+        }
         return;
       }
     } catch {
@@ -1287,6 +1346,7 @@ export class SupabaseService {
         } else if (updErr) {
           throw new Error(updErr.message);
         }
+        await this.notifyPostAuthorOfReaction(postId, userId, reactionType);
       }
     } else {
       // Insert new reaction (try canonical first, fallback to raw emoji)
@@ -1306,6 +1366,7 @@ export class SupabaseService {
       } else if (insErr) {
         throw new Error(insErr.message);
       }
+      await this.notifyPostAuthorOfReaction(postId, userId, reactionType);
     }
   }
 
@@ -1738,7 +1799,7 @@ export class SupabaseService {
           user_id: payload.recipient_id,
           title: 'New Mentoring Message',
           message: `${senderProfile?.full_name || 'Someone'}: "${payload.content.slice(0, 35)}${payload.content.length > 35 ? '...' : ''}"`,
-          link: senderProfile?.role === 'student' ? `/mentor/students` : `/student/feed`,
+          link: '/messages',
         });
       } catch (notifErr) {
         console.warn('Message notification insert notice:', notifErr);

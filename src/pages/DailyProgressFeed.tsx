@@ -148,7 +148,7 @@ export const DailyProgressFeed: React.FC = () => {
           // Check if student is active approved member
           const enrollments = await supabaseService.getEnrollmentsForStudent(currentUser.id);
           const enrollment = enrollments.find((e) => e.class_id === activeClass.id);
-          if (enrollment && enrollment.status === 'removed') {
+          if (enrollment && (enrollment.status === 'removed' || enrollment.status === 'rejected')) {
             setPosts([]);
             setFeedError('You have been removed from this class by the faculty mentor.');
             return;
@@ -166,7 +166,7 @@ export const DailyProgressFeed: React.FC = () => {
         if (currentUser.role === 'student') {
           const enrollments = appStore.getEnrollmentsForStudent(currentUser.id);
           const enrollment = enrollments.find((e) => e.class_id === activeClass.id);
-          if (enrollment && enrollment.status === 'removed') {
+          if (enrollment && (enrollment.status === 'removed' || enrollment.status === 'rejected')) {
             setPosts([]);
             setFeedError('You have been removed from this class by the faculty mentor.');
             return;
@@ -232,7 +232,26 @@ export const DailyProgressFeed: React.FC = () => {
         .subscribe();
     }
 
+    const handleReactionUpdate = () => {
+      loadPosts(false);
+    };
+    window.addEventListener('mentorpulse:reaction_update', handleReactionUpdate);
+
+    let reactionBc: BroadcastChannel | null = null;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        reactionBc = new BroadcastChannel('mentorpulse_reactions_bus');
+        reactionBc.onmessage = () => {
+          loadPosts(false);
+        };
+      }
+    } catch {}
+
     return () => {
+      window.removeEventListener('mentorpulse:reaction_update', handleReactionUpdate);
+      if (reactionBc) {
+        try { reactionBc.close(); } catch {}
+      }
       if (channel && supabase) {
         supabase.removeChannel(channel);
       }
@@ -447,8 +466,8 @@ export const DailyProgressFeed: React.FC = () => {
   };
 
   const handleReaction = async (postId: string, reactionType: ReactionType) => {
-    if (!isMentor) {
-      alert('Faculty reactions can only be awarded by faculty mentors.');
+    if (!currentUser) {
+      alert('Please sign in to react to progress posts.');
       return;
     }
 
@@ -1121,60 +1140,47 @@ export const DailyProgressFeed: React.FC = () => {
                 <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
                   {/* Emoji Reactions: 🔥, 👏, 💡 */}
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[11px] text-slate-400 mr-1 font-medium">
-                      {isMentor ? 'Give Faculty Reaction:' : 'Faculty Mentor Reaction:'}
+                    <span className="text-[11px] text-slate-500 mr-1 font-semibold">
+                      {isMentor ? 'Faculty Reactions:' : 'Reactions & Kudos:'}
                     </span>
                     {REACTION_CONFIG.map((cfg) => {
-                      const count = (post.reactions || []).filter(
+                      const matchingReactions = (post.reactions || []).filter(
                         (r) => r.reaction_type === cfg.type || cfg.aliases.includes(r.reaction_type)
-                      ).length;
+                      );
+                      const count = matchingReactions.length;
                       const hasReacted = userReaction && (
                         userReaction.reaction_type === cfg.type || cfg.aliases.includes(userReaction.reaction_type)
                       );
+                      const reactors = matchingReactions
+                        .map((r) => r.user?.full_name || r.user_name || (r.user_id === currentUser.id ? 'You' : 'Classmate'))
+                        .filter(Boolean);
+                      const reactorsPreview = reactors.slice(0, 3).join(', ');
+                      const tooltip = count > 0
+                        ? `${cfg.label} (${count}): ${reactorsPreview}${reactors.length > 3 ? '...' : ''}`
+                        : isMentor
+                        ? `Faculty Feedback: React with ${cfg.label} (${cfg.type})`
+                        : `React with ${cfg.label} (${cfg.type})`;
 
-                      if (isMentor) {
-                        return (
-                          <button
-                            key={cfg.type}
-                            type="button"
-                            onClick={() => handleReaction(post.id, cfg.type)}
-                            title={`Faculty Feedback: React with ${cfg.label} (${cfg.type})`}
-                            className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
-                              hasReacted
-                                ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'
-                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                            }`}
-                          >
-                            <span className="text-sm leading-none">{cfg.emoji}</span>
-                            <span className="text-[11px] font-medium">{cfg.label}</span>
-                            {count > 0 && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white/70 rounded-full">
-                                {count}
-                              </span>
-                            )}
-                          </button>
-                        );
-                      }
-
-                      // Student view: Read-only mentor feedback badge
                       return (
-                        <div
+                        <button
                           key={cfg.type}
-                          title={count > 0 ? `Faculty mentor reacted: ${cfg.label}` : `Mentor reaction (${cfg.label})`}
-                          className={`px-2.5 py-1 rounded-full text-xs font-medium flex items-center gap-1.5 select-none ${
-                            count > 0
-                              ? 'bg-amber-50 text-amber-900 border border-amber-200 font-semibold'
-                              : 'bg-slate-50 text-slate-400 opacity-60'
+                          type="button"
+                          onClick={() => handleReaction(post.id, cfg.type)}
+                          title={tooltip}
+                          className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
+                            hasReacted
+                              ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs ring-1 ring-amber-400/40'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                           }`}
                         >
                           <span className="text-sm leading-none">{cfg.emoji}</span>
-                          <span className="text-[11px]">{cfg.label}</span>
+                          <span className="text-[11px] font-medium">{cfg.label}</span>
                           {count > 0 && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white rounded-full text-amber-800 shadow-2xs">
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 bg-white/80 rounded-full text-amber-950 shadow-2xs">
                               {count}
                             </span>
                           )}
-                        </div>
+                        </button>
                       );
                     })}
                   </div>

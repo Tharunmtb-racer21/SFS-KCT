@@ -600,6 +600,7 @@ export class AppDataStore {
     const user = this.profiles.find((u) => u.id === userId);
 
     const existingIdx = reactions.findIndex((r) => r.user_id === userId);
+    let shouldNotify = false;
     if (existingIdx !== -1) {
       if (reactions[existingIdx].reaction_type === reactionType) {
         // Toggle off
@@ -607,6 +608,9 @@ export class AppDataStore {
       } else {
         // Change reaction
         reactions[existingIdx].reaction_type = reactionType;
+        reactions[existingIdx].user = user || undefined;
+        reactions[existingIdx].user_name = user?.full_name;
+        shouldNotify = true;
       }
     } else {
       reactions.push({
@@ -616,25 +620,46 @@ export class AppDataStore {
         reaction_type: reactionType,
         created_at: new Date().toISOString(),
         user_name: user?.full_name,
+        user: user || undefined,
       });
+      shouldNotify = true;
+    }
 
-      // Notify post author if reaction is from another user
-      if (post.student_id !== userId) {
-        this.notifications.push({
-          id: 'notif-' + Date.now(),
-          user_id: post.student_id,
-          title: `Reaction on your post`,
-          message: `${user?.full_name || 'Someone'} reacted ${reactionType} to "${post.title.substring(0, 30)}..."`,
-          link: `/student/feed`,
-          read: false,
-          created_at: new Date().toISOString(),
-        });
-        saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
-      }
+    // Notify post author if reaction is added/changed by another user
+    if (shouldNotify && post.student_id !== userId) {
+      const isFaculty = user?.role === 'mentor' || user?.role === 'admin';
+      const notifTitle = isFaculty ? `Faculty Kudos: ${reactionType}` : `New Reaction: ${reactionType}`;
+      this.notifications.push({
+        id: 'notif-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        user_id: post.student_id,
+        title: notifTitle,
+        message: `${user?.full_name || 'Someone'} reacted ${reactionType} to "${post.title.substring(0, 30)}..."`,
+        link: `/student/feed`,
+        read: false,
+        created_at: new Date().toISOString(),
+      });
+      saveToStorage(STORAGE_KEYS.NOTIFICATIONS, this.notifications);
     }
 
     this.dailyPosts[postIndex] = { ...post, reactions };
     saveToStorage(STORAGE_KEYS.DAILY_POSTS, this.dailyPosts);
+
+    // Reactive window and cross-tab delivery
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('mentorpulse:reaction_update', {
+          detail: { postId, userId, reactionType }
+        })
+      );
+      try {
+        if (typeof BroadcastChannel !== 'undefined') {
+          const bc = new BroadcastChannel('mentorpulse_reactions_bus');
+          bc.postMessage({ type: 'REACTION_UPDATE', postId, userId, reactionType });
+          bc.close();
+        }
+      } catch {}
+    }
+
     return this.dailyPosts[postIndex];
   }
 

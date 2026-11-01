@@ -73,6 +73,7 @@ export interface PostReaction {
   reaction_type: ReactionType;
   created_at: string;
   user_name?: string;
+  user?: Profile;
 }
 
 export interface PostFeedback {

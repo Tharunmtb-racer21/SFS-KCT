@@ -55,10 +55,6 @@ export const StudentProfileView: React.FC = () => {
       alert('Please sign in to react to progress posts.');
       return;
     }
-    if (currentUser.role !== 'mentor') {
-      alert('Faculty reactions can only be awarded by faculty mentors.');
-      return;
-    }
 
     // Immediate Optimistic UI update so user sees response instantly
     setDailyPosts((prev) =>
@@ -282,7 +278,7 @@ export const StudentProfileView: React.FC = () => {
           </div>
 
           <div className="flex sm:flex-col items-center sm:items-end gap-2 text-right">
-            {enrollmentStatus === 'removed' ? (
+            {enrollmentStatus === 'removed' || enrollmentStatus === 'rejected' ? (
               <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
                 Removed from this Class
               </span>
@@ -302,7 +298,7 @@ export const StudentProfileView: React.FC = () => {
               Direct Message Student
             </button>
             {currentUser?.role === 'mentor' && activeClass && (
-              enrollmentStatus === 'removed' ? (
+              enrollmentStatus === 'removed' || enrollmentStatus === 'rejected' ? (
                 <button
                   onClick={async () => {
                     if (!enrollmentId) return;
@@ -482,7 +478,9 @@ export const StudentProfileView: React.FC = () => {
 
                 {/* Faculty Mentor Reactions */}
                 <div className="pt-2 flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[11px] text-slate-500 font-semibold mr-1">Faculty Reaction:</span>
+                  <span className="text-[11px] text-slate-500 font-semibold mr-1">
+                    {currentUser?.role === 'mentor' ? 'Faculty Reaction:' : 'Reactions & Kudos:'}
+                  </span>
                   {REACTION_CONFIG.map((cfg) => {
                     const count = (post.reactions || []).filter(
                       (r) => r.reaction_type === cfg.type || cfg.aliases.includes(r.reaction_type)
@@ -496,7 +494,7 @@ export const StudentProfileView: React.FC = () => {
                         key={cfg.type}
                         type="button"
                         onClick={() => handleReaction(post.id, cfg.type)}
-                        title={`Award ${cfg.label} (${cfg.type}) to ${student.full_name}`}
+                        title={currentUser?.role === 'mentor' ? `Award ${cfg.label} (${cfg.type}) to ${student.full_name}` : `React with ${cfg.label} (${cfg.type})`}
                         className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer ${
                           hasReacted
                             ? 'bg-amber-100 text-amber-900 border border-amber-300 shadow-xs'

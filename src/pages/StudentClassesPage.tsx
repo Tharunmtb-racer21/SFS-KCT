@@ -227,7 +227,7 @@ export const StudentClassesPage: React.FC = () => {
             if (!c) return null;
             const isApproved = e.status === 'approved';
             const isPending = e.status === 'pending';
-            const isRemoved = e.status === 'removed';
+            const isRemoved = e.status === 'removed' || e.status === 'rejected';
 
             return (
               <div

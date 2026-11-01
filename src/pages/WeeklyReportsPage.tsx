@@ -74,7 +74,7 @@ export const WeeklyReportsPage: React.FC = () => {
           ? await supabaseService.getEnrollmentsForStudent(currentUser.id)
           : appStore.getEnrollmentsForStudent(currentUser.id);
         const enrollment = enrollments.find(e => e.class_id === activeClass.id);
-        if (enrollment && enrollment.status === 'removed') {
+        if (enrollment && (enrollment.status === 'removed' || enrollment.status === 'rejected')) {
           setIsRemovedStudent(true);
           setReports([]);
           return;

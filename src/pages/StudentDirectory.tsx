@@ -102,7 +102,7 @@ export const StudentDirectory: React.FC = () => {
 
   const approvedList = enrollments.filter(e => e.status === 'approved');
   const pendingList = enrollments.filter(e => e.status === 'pending');
-  const removedList = enrollments.filter(e => e.status === 'removed');
+  const removedList = enrollments.filter(e => e.status === 'removed' || e.status === 'rejected');
 
   const handleApprove = async (enrollmentId: string) => {
     try {
@@ -378,7 +378,7 @@ export const StudentDirectory: React.FC = () => {
           {filteredList.map((enrollment) => {
             const student = enrollment.student;
             const isPending = enrollment.status === 'pending';
-            const isRemoved = enrollment.status === 'removed';
+            const isRemoved = enrollment.status === 'removed' || enrollment.status === 'rejected';
 
             return (
               <div

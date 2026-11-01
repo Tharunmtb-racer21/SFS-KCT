@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserX, AlertTriangle, ShieldCheck, Loader2, X } from 'lucide-react';
+import { UserX, AlertTriangle, ShieldCheck, Loader2, X, Check } from 'lucide-react';
 import { Profile, ClassGroup } from '../types';
 
 interface RemoveStudentModalProps {
@@ -114,11 +114,11 @@ export const RemoveStudentModal: React.FC<RemoveStudentModalProps> = ({
                 <span>The student immediately loses access to this class's daily feed, weekly reports, and mentor messaging.</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-emerald-600 font-bold">&check;</span>
+                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
                 <span>The student's global login account, profile, historical daily posts, and weekly reports are safely preserved for institutional audit records.</span>
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-emerald-600 font-bold">&check;</span>
+                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
                 <span>The student remains enrolled in any other classes they have joined.</span>
               </li>
               <li className="flex items-start gap-2">
